@@ -223,7 +223,8 @@ def run(args, verbose=False):
                 utils.checkattr(args, "dg_gates") and hasattr(args, "dg_prop") and args.dg_prop>0
             ) else "",
             int="Int" if utils.checkattr(args, "hidden") else "",
-            dis="Dis" if args.replay=="generative" and args.distill else "",
+            dis="Dis" if args.replay=="generative" and args.distill
+            else "",
             b="" if (args.batch_replay is None or args.batch_replay==args.batch) else "-br{}".format(args.batch_replay),
             u="" if args.g_fc_uni==args.fc_units else "-gu{}".format(args.g_fc_uni)
         ) if (hasattr(args, "replay") and not args.replay=="none") else "NR"

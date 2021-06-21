@@ -129,6 +129,7 @@ def train_cl(model, train_datasets, replay_mode="none", scenario="task", rnt=Non
         elif scenario=="class":
             # -for "class"-scenario, create one <list> with active classes of all tasks so far
             active_classes = list(range(classes_per_task*task))
+            print('Active Classes =', active_classes)
 
         # Reinitialize the model's parameters (if requested)
         if reinit:
@@ -223,7 +224,7 @@ def train_cl(model, train_datasets, replay_mode="none", scenario="task", rnt=Non
                                                             only_x=False)
                         x_.append(x_temp_[0])
                         task_used.append(x_temp_[2])
-                else:
+                else: ###
                     # -which classes are allowed to be generated? (relevant if conditional generator / decoder-gates)
                     allowed_classes = None if scenario=="domain" else list(range(classes_per_task*(task-1)))
                     # -which tasks/domains are allowed to be generated? (only relevant if "Domain-IL" with task-gates)
@@ -248,7 +249,7 @@ def train_cl(model, train_datasets, replay_mode="none", scenario="task", rnt=Non
                             scenario=="class"
                     ) else all_scores_ # -> when scenario=="class", zero probs will be added in [loss_fn_kd]-function
                     # -also get the 'hard target'
-                    _, y_ = torch.max(scores_, dim=1)
+                    _, y_ = torch.max(scores_, dim=1) ###
                 else:
                     # -[x_] needs to be evaluated according to each previous task, so make list with entry per task
                     scores_ = list()
@@ -278,7 +279,16 @@ def train_cl(model, train_datasets, replay_mode="none", scenario="task", rnt=Non
             # -only keep predicted y_/scores_ if required (as otherwise unnecessary computations will be done)
             y_ = y_ if (model.replay_targets=="hard") else None
             scores_ = scores_ if (model.replay_targets=="soft") else None
-
+            
+            #### Finding top 2 scores predicted by classifier for each replay 'image'...
+            top_scores_ = torch.topk(scores_, 2, dim=1)[1] if scores_ is not None else None
+            
+            #if scores_ is not None:
+            #    tk = 4 if scores_.size()[1] > 3 else scores_.size()[1]
+            #else:
+            #    tk = None
+            #top_scores_ = torch.topk(scores_, tk, dim=1)[1] if scores_ is not None else None
+            ####
 
 
             #-----------------Train model(s)------------------#
@@ -287,11 +297,11 @@ def train_cl(model, train_datasets, replay_mode="none", scenario="task", rnt=Non
             if batch_index <= iters_main:
 
                 # Train the main model with this batch
-                loss_dict = model.train_a_batch(x, y=y, x_=x_, y_=y_, scores_=scores_,
+                loss_dict = model.train_a_batch(x, y=y, x_=x_, y_=y_, scores_=scores_, top_scores_=top_scores_, batch_index=batch_index,
                                                 tasks_=task_used, active_classes=active_classes, task=task, rnt=(
                                                     1. if task==1 else 1./task
                                                 ) if rnt is None else rnt, freeze_convE=freeze_convE,
-                                                replay_not_hidden=False if Generative else True)
+                                                replay_not_hidden=False if Generative else True, batch_size_replay=batch_size_replay, task_n=task)
 
                 # Update running parameter importance estimates in W
                 if isinstance(model, ContinualLearner) and model.si_c>0:
@@ -357,7 +367,9 @@ def train_cl(model, train_datasets, replay_mode="none", scenario="task", rnt=Non
         progress.close()
         if generator is not None:
             progress_gen.close()
-
+        
+        ####
+        print(loss_dict)
 
         ##----------> UPON FINISHING EACH TASK...
 

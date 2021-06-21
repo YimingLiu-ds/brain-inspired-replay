@@ -172,6 +172,7 @@ def add_VAE_options(parser, only_MNIST=False,  **kwargs):
     # -how to weigh components of the loss-function?
     VAE.add_argument('--recon-weight', type=float, default=1., dest='rcl', help="weight of recon-loss (def=1)")
     VAE.add_argument('--variat-weight', type=float, default=1., dest='vl', help="weight of KLD-loss (def=1)")
+    VAE.add_argument('--diff-weight', type=float, default=0.5, dest='diff', help="weight of KLD-loss (def=1)")
     # -architecture of decoder (type of deconv-layer and use of 'decoder-gates')
     if not only_MNIST:
         VAE.add_argument('--deconv-type', type=str, default="standard", choices=["standard", "resNet"])
@@ -202,6 +203,8 @@ def add_replay_options(parser, only_MNIST=False, compare_code="none", **kwargs):
     # -add VAE-specific parameters
     if compare_code in ("none"):
         parser = add_VAE_options(parser, only_MNIST=only_MNIST)
+    if compare_code in ("none"):
+        replay.add_argument('--repulsion', action='store_true', dest='repulsion')
     return parser
 
 

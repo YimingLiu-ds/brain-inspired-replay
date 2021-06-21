@@ -40,6 +40,9 @@ def define_autoencoder(args, config, device, generator=False, convE=None):
             lamda_rcl=1. if not hasattr(args, 'rcl') else args.rcl,
             lamda_vl=1. if not hasattr(args, 'vl') else args.vl,
             lamda_pl=(0. if generator else 1.) if not hasattr(args, 'pl') else args.pl,
+            ####
+            lambda_diff=args.diff, repulsion=args.repulsion
+            ####
         ).to(device)
     else:
         model = AutoEncoder(
@@ -68,6 +71,9 @@ def define_autoencoder(args, config, device, generator=False, convE=None):
             lamda_rcl=1. if not hasattr(args, 'rcl') else args.rcl,
             lamda_vl=1. if not hasattr(args, 'vl') else args.vl,
             lamda_pl=(0. if generator else 1.) if not hasattr(args, 'pl') else args.pl,
+            ####
+            lambda_diff=args.diff, repulsion=args.repulsion
+            ####
         ).to(device)
     # -return model
     return model

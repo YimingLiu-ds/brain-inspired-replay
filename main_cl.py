@@ -366,6 +366,11 @@ def run(args, verbose=False):
     output_file.write('{}\n'.format(average_precs))
     output_file.close()
 
+    param_tuning = False if not hasattr(args, 'tuning') else args.tuning
+    if param_tuning:
+        f_out = open("./store/tuning_results/{} {}.txt".format(args.kl_js, args.rep_factor), 'w')
+        f_out.write('{}\n'.format(average_precs))
+        f_out.close()
 
     #-------------------------------------------------------------------------------------------------#
 

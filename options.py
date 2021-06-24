@@ -208,6 +208,7 @@ def add_replay_options(parser, only_MNIST=False, compare_code="none", **kwargs):
         replay.add_argument('--kl-js', type=str, default='js', dest='kl_js', help='use KL or JS divergence for repulsion loss (def=js)')
         replay.add_argument('--use-rep-f', action='store_true', dest='use_rep_factor', help='use repulsion factor (def=False)')
         replay.add_argument('--rep-f', type=float, default=1.5, dest='rep_factor', help='repulsion factor (def=1.5)')
+        replay.add_argument('--tuning', action='store_true', dest='tuning', help="performing hyperparameter tuning (repulsion)")
     return parser
 
 

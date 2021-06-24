@@ -28,8 +28,8 @@ try:
          'python3', 'main_cl.py', '--experiment=splitMNIST', '--scenario=class', \
          '--replay=generative', '--brain-inspired', '--si', '--repulsion', '--kl-js={}'.format('js'), \
          '--use-rep-f', '--rep-f={}'.format(1.5), '--tuning', 'iters=50'], universal_newlines=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        print("stdout:", result.stdout)
-        print("stderr:", result.stderr)
-        print("code:", result.returncode)
+    print("stdout:", result.stdout)
+    print("stderr:", result.stderr)
+    print("code:", result.returncode)
 except FileNotFoundError as e:
     print(e)

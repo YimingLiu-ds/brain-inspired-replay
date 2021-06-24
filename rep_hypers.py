@@ -21,7 +21,7 @@ for kl_js in kl_js_list:
          '--user $(id', '-u):$(id', '-g)', '--gpus', '\'\"device=3,4\"\'', 'jlm67/project', \
          'python3', 'main_cl.py', '--experiment=splitMNIST', '--scenario=class', \
          '--replay=generative', '--brain-inspired', '--si', '--repulsion', '--kl-js={}'.format(kl_js), \
-         '--use-rep-f', '--rep-f={}'.format(f), 'iters=10'])
+         '--use-rep-f', '--rep-f={}'.format(f), 'iters=500'])
 
 #['tsp', '-S 8', 'hare', 'run', '--rm', '--workdir /app', '-v "$(pwd)":/app', \
 #         '--user $(id', '-u):$(id', '-g)', '--gpus', '\'\"device=3,4\"\'', 'jlm67/project', \

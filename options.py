@@ -172,7 +172,6 @@ def add_VAE_options(parser, only_MNIST=False,  **kwargs):
     # -how to weigh components of the loss-function?
     VAE.add_argument('--recon-weight', type=float, default=1., dest='rcl', help="weight of recon-loss (def=1)")
     VAE.add_argument('--variat-weight', type=float, default=1., dest='vl', help="weight of KLD-loss (def=1)")
-    VAE.add_argument('--diff-weight', type=float, default=0.5, dest='diff', help="weight of KLD-loss (def=1)")
     # -architecture of decoder (type of deconv-layer and use of 'decoder-gates')
     if not only_MNIST:
         VAE.add_argument('--deconv-type', type=str, default="standard", choices=["standard", "resNet"])
@@ -204,7 +203,11 @@ def add_replay_options(parser, only_MNIST=False, compare_code="none", **kwargs):
     if compare_code in ("none"):
         parser = add_VAE_options(parser, only_MNIST=only_MNIST)
     if compare_code in ("none"):
-        replay.add_argument('--repulsion', action='store_true', dest='repulsion')
+        replay.add_argument('--repulsion', action='store_true', dest='repulsion', help="use repulsion with replay")
+        replay.add_argument('--lamda-rep', type=float, default=1., dest='repl', help='weight of repulsion loss (def=1)')
+        replay.add_argument('--kl-js', type=str, default='js', dest='kl_js', help='use KL or JS divergence for repulsion loss (def=js)')
+        replay.add_argument('--use-rep-f', action='store_true', dest='use_rep_factor', help='use repulsion factor (def=False)')
+        replay.add_argument('--rep-f', type=float, default=1.5, dest='rep_factor', help='repulsion factor (def=1.5)')
     return parser
 
 

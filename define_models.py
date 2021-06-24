@@ -41,7 +41,11 @@ def define_autoencoder(args, config, device, generator=False, convE=None):
             lamda_vl=1. if not hasattr(args, 'vl') else args.vl,
             lamda_pl=(0. if generator else 1.) if not hasattr(args, 'pl') else args.pl,
             ####
-            lambda_diff=args.diff, repulsion=args.repulsion
+            lambda_rep=1. if not hasattr(args, 'repl') else args.repl,
+            repulsion=False if not hasattr(args, 'repulsion') else args.repulsion,
+            kl_js='js' if not hasattr(args, 'kl_js') else args.kl_js,
+            use_rep_factor=False if not hasattr(args, 'use_rep_factor') else args.use_rep_factor,
+            rep_factor=1.5 if not hasattr(args, 'rep_factor') else args.rep_factor
             ####
         ).to(device)
     else:
@@ -72,7 +76,11 @@ def define_autoencoder(args, config, device, generator=False, convE=None):
             lamda_vl=1. if not hasattr(args, 'vl') else args.vl,
             lamda_pl=(0. if generator else 1.) if not hasattr(args, 'pl') else args.pl,
             ####
-            lambda_diff=args.diff, repulsion=args.repulsion
+            lambda_rep=1. if not hasattr(args, 'repl') else args.repl,
+            repulsion=False if not hasattr(args, 'repulsion') else args.repulsion,
+            kl_js='js' if not hasattr(args, 'kl_js') else args.kl_js,
+            use_rep_factor=False if not hasattr(args, 'use_rep_factor') else args.use_rep_factor,
+            rep_factor=1.5 if not hasattr(args, 'rep_factor') else args.rep_factor
             ####
         ).to(device)
     # -return model

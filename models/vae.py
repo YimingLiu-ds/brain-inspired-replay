@@ -30,9 +30,9 @@ class AutoEncoder(ContinualLearner):
                  # -classifer
                  classifier=True, classify_opt="beforeZ",
                  # -training-specific settings (can be changed after setting up model)
-                 lamda_pl=0., lamda_rcl=1., lamda_vl=1., lamda_diff=1., 
+                 lamda_pl=0., lamda_rcl=1., lamda_vl=1., lamda_rep=1., 
                  #### Determine whether or not to implement class repulsion...
-                 repulsion=False, **kwargs):
+                 repulsion=False, kl_js='js', use_rep_factor=False, rep_factor=1.5, **kwargs):
 
         # Set configurations for setting up the model
         super().__init__()
@@ -79,7 +79,7 @@ class AutoEncoder(ContinualLearner):
         self.lamda_rcl = lamda_rcl     # weight of reconstruction-loss
         self.lamda_vl = lamda_vl       # weight of variational loss
         ####
-        self.lamda_diff = lamda_diff       # weight of difference loss
+        self.lamda_rep = lamda_rep       # weight of difference loss
         ####
 
         # Check whether there is at least 1 fc-layer
@@ -161,9 +161,11 @@ class AutoEncoder(ContinualLearner):
             self.z_class_means.data.normal_()
             self.z_class_logvars.data.normal_()
         
-        # Whether to use JS-divergence instead of KL-divergence...
-        self.js = True
-
+        ### Whether to use JS-divergence instead of KL-divergence...
+        self.kl_js = kl_js
+        ### Whether to use the repulsion factor & its magnitude...
+        self.use_rep_factor = use_rep_factor
+        self.rep_factor = rep_factor
 
 
     ##------ NAMES --------##
@@ -554,7 +556,7 @@ class AutoEncoder(ContinualLearner):
     ############################################################################################################################
     ############################################################################################################################
     ############################################################################################################################
-    def calculate_diff_loss(self, mu_1, logvar_1, mu_2, logvar_2, js=False):
+    def calculate_diff_loss(self, mu_1, logvar_1, mu_2, logvar_2, kl_js='js'):
         '''Calculate difference loss for each element in the batch.
 
         INPUT:  - [mu]       <2D-tensor> by encoder predicted mean for [z]
@@ -565,7 +567,7 @@ class AutoEncoder(ContinualLearner):
         #### KL-divergence between two gaussian distributions...
         # --> calculate analytically
         
-        if js:
+        if kl_js=='js':
             ## JS-divergence...
             mu_m, logvar_m = 0.5 * (mu_1 + mu_2), torch.log(0.25 * (torch.exp(logvar_1) + torch.exp(logvar_2)))
     
@@ -582,7 +584,8 @@ class AutoEncoder(ContinualLearner):
 
 
     def loss_function(self, x, y, x_recon, y_hat, scores, mu, z, logvar=None, allowed_classes=None, batch_weights=None,
-                      diff=True, mu_diff=None, logvar_diff=None, mu_2=None, logvar_2=None, mu_3=None, logvar_3=None, mu_4=None, logvar_4=None, js=False):
+                      diff=False, mu_diff=None, logvar_diff=None, mu_2=None, logvar_2=None, mu_3=None, logvar_3=None,
+                      mu_4=None, logvar_4=None, kl_js='js', use_rep_factor=False):
         '''Calculate and return various losses that could be used for training and/or evaluating the model.
 
         INPUT:  - [x]           <4D-tensor> original image
@@ -635,25 +638,27 @@ class AutoEncoder(ContinualLearner):
         #### Difference loss for each image in batch...
         if diff:
             if (mu_2 is not None) and (logvar_2 is not None):
-                diffL = self.calculate_diff_loss(mu_1=mu if mu_diff is None else mu_diff, logvar_1=logvar if logvar_diff is None else logvar_diff, mu_2=mu_2, logvar_2=logvar_2, js=js)
-                past_diffL = diffL
+                diffL = self.calculate_diff_loss(mu_1=mu if mu_diff is None else mu_diff, logvar_1=logvar if logvar_diff is None else logvar_diff, \
+                                                 mu_2=mu_2, logvar_2=logvar_2, kl_js=kl_js)
                 diffL = lf.weighted_average(diffL, weights=batch_weights, dim=0)
                 #if mu_diff is not None:
-                #    diffL *= mu_diff.size()[0]# * 1e3
-                diffL /= (self.image_channels * self.image_size ** 2)# * mu.size()[0])
+                #    diffL *= mu_diff.size()[0]
+                diffL /= (self.image_channels * self.image_size ** 2)
                 
             else:
                 diffL = None
     
             if (mu_3 is not None) and (logvar_3 is not None):
-                diffL_2 = self.calculate_diff_loss(mu_1=mu, logvar_1=logvar, mu_2=mu_3, logvar_2=logvar_3, js=js)
+                diffL_2 = self.calculate_diff_loss(mu_1=mu_3[0] if use_rep_factor else mu, logvar_1=logvar_3[0] if use_rep_factor else logvar, mu_2=mu_3[1] if use_rep_factor else mu_3, \
+                                                   logvar_2=logvar_3[1] if use_rep_factor else logvar_3, kl_js=kl_js)
                 diffL_2 = lf.weighted_average(diffL_2, weights=batch_weights, dim=0)
                 diffL_2 /= (self.image_channels * self.image_size ** 2)
             else:
                 diffL_2 = None
     
             if (mu_4 is not None) and (logvar_4 is not None):
-                diffL_3 = self.calculate_diff_loss(mu_1=mu, logvar_1=logvar, mu_2=mu_4, logvar_2=logvar_4, js=js)
+                diffL_3 = self.calculate_diff_loss(mu_1=mu_4[0] if use_rep_factor else mu, logvar_1=logvar_4[0] if use_rep_factor else logvar, mu_2=mu_4[1] if use_rep_factor else mu_4, \
+                                                   logvar_2=logvar_4[1] if use_rep_factor else logvar_4, kl_js=kl_js)
                 diffL_3 = lf.weighted_average(diffL_3, weights=batch_weights, dim=0)
                 diffL_3 /= (self.image_channels * self.image_size ** 2)
             else:
@@ -931,26 +936,32 @@ class AutoEncoder(ContinualLearner):
                 # -run full model
                 gate_input = (tasks_ if self.dg_type=="task" else y_predicted) if self.dg_gates else None
                 recon_batch, y_hat_all, mu, logvar, z = self(x_temp_, gate_input=gate_input, full=True)
+                
                 ####
-                factor_probs = True ###############
                 
                 if top_scores_ is not None:
                     diff = True
                     mu_diff = None
                     logvar_diff = None
-                    #specific_classes = top_scores_.to('cpu').numpy()[:,1].reshape(-1)
-                    #mu_2, logvar_2 = self.sample(batch_size_replay, specific_classes=specific_classes, only_z=True)
 
                     specific_classes = top_scores_.to('cpu').numpy()
-                    sc_size = specific_classes.shape[1]
+                    sc_size = specific_classes.shape
+                    specific_classes_0 = specific_classes[:,0].reshape(-1)
+                    specific_classes_1 = specific_classes[:,1].reshape(-1)
+                    specific_classes_2 = specific_classes[:,2].reshape(-1) if (sc_size[1] > 2) else None
+                    specific_classes_3 = specific_classes[:,3].reshape(-1) if (sc_size[1] > 3) else None
+                    
                     ##
-                    if factor_probs:
+                    if self.use_rep_factor:
                         # Check probabilities...
-                        factor = 1.5
                         y_probabilities = F.softmax(scores_[0], dim=1)
-                        y_probs = y_probabilities[np.arange(specific_classes.shape[0]), specific_classes[:,0].reshape(-1)].to('cpu').numpy()
-                        y_probs_1 = y_probabilities[np.arange(specific_classes.shape[0]), specific_classes[:,1].reshape(-1)].to('cpu').numpy()
-                        samples_to_use = np.where(y_probs < (factor * y_probs_1))[0]
+                        y_probs = y_probabilities[np.arange(sc_size[0]), specific_classes_0].to('cpu').numpy()
+                        y_probs_1 = y_probabilities[np.arange(sc_size[0]), specific_classes_1].to('cpu').numpy()
+                        y_probs_2 = y_probabilities[np.arange(sc_size[0]), specific_classes_2].to('cpu').numpy() if (specific_classes_2 is not None) else None
+                        y_probs_3 = y_probabilities[np.arange(sc_size[0]), specific_classes_3].to('cpu').numpy() if (specific_classes_3 is not None) else None
+                        samples_to_use = np.where(y_probs < (self.rep_factor * y_probs_1))[0]
+                        samples_to_use_2 = np.where(y_probs < (self.rep_factor * y_probs_2))[0] if (specific_classes_2 is not None) else None
+                        samples_to_use_3 = np.where(y_probs < (self.rep_factor * y_probs_3))[0] if (specific_classes_3 is not None) else None
                     else:
                         samples_to_use = None
                     ##
@@ -960,18 +971,25 @@ class AutoEncoder(ContinualLearner):
                             mu_diff = mu[samples_to_use]
                             logvar_diff = logvar[samples_to_use]
                             specific_classes_1 = specific_classes_1[samples_to_use]
+                            if (samples_to_use_2 is not None) and (samples_to_use_2.size > 0):
+                                mu_diff_3 = mu[samples_to_use_2]
+                                logvar_diff_3 = logvar[samples_to_use_2]
+                                specific_classes_2 = specific_classes_2[samples_to_use_2]
+                                mu_3, logvar_3 = self.sample(batch_size_replay, specific_classes=specific_classes_2, only_z=True)
+                                mu_3, logvar_3 = (mu_diff_3, mu_3), (logvar_diff_3, logvar_3)
+                            if (samples_to_use_3 is not None) and (samples_to_use_3.size > 0):
+                                mu_diff_4 = mu[samples_to_use_3]
+                                logvar_diff_4 = logvar[samples_to_use_3]
+                                specific_classes_3 = specific_classes_3[samples_to_use_3]
+                                mu_4, logvar_4 = self.sample(batch_size_replay, specific_classes=specific_classes_3, only_z=True)
+                                mu_4, logvar_4 = (mu_diff_4, mu_4), (logvar_diff_4, logvar_4)
+                        else:
+                            if specific_classes_2 is not None:
+                                mu_3, logvar_3 = self.sample(batch_size_replay, specific_classes=specific_classes_2, only_z=True)
+                            elif specific_classes_3 is not None:
+                                mu_3, logvar_3 = self.sample(batch_size_replay, specific_classes=specific_classes_2, only_z=True)
+                                mu_4, logvar_4 = self.sample(batch_size_replay, specific_classes=specific_classes_3, only_z=True)
                         mu_2, logvar_2 = self.sample(batch_size_replay, specific_classes=specific_classes_1, only_z=True)
-                        if sc_size == 3:
-                            #specific_classes_2 = specific_classes[:,2].reshape(-1)[samples_to_use]
-                            specific_classes_2 = specific_classes[:,2].reshape(-1)
-                            mu_3, logvar_3 = self.sample(batch_size_replay, specific_classes=specific_classes_2, only_z=True)
-                        elif sc_size == 4:
-                            #specific_classes_2 = specific_classes[:,2].reshape(-1)[samples_to_use]
-                            specific_classes_2 = specific_classes[:,2].reshape(-1)
-                            mu_3, logvar_3 = self.sample(batch_size_replay, specific_classes=specific_classes_2, only_z=True)
-                            #specific_classes_3 = specific_classes[:,3].reshape(-1)[samples_to_use]
-                            specific_classes_3 = specific_classes[:,3].reshape(-1)
-                            mu_4, logvar_4 = self.sample(batch_size_replay, specific_classes=specific_classes_3, only_z=True)
                     else:
                         diff = False
                 ####
@@ -1033,21 +1051,23 @@ class AutoEncoder(ContinualLearner):
                         x=x_temp_, y=y_[replay_id] if (y_ is not None) else None, x_recon=recon_batch, y_hat=y_hat,
                         scores=scores_[replay_id] if (scores_ is not None) else None, mu=mu, z=z, logvar=logvar,
                         allowed_classes=active_classes[replay_id] if active_classes is not None else None,
-                        diff=diff, mu_diff=mu_diff, logvar_diff=logvar_diff, mu_2=mu_2, logvar_2=logvar_2, js=self.js,
+                        diff=diff, mu_diff=mu_diff, logvar_diff=logvar_diff, mu_2=mu_2, logvar_2=logvar_2, kl_js=self.kl_js,
                     )
                 elif mu_4 is None:
                     reconL_r[replay_id],variatL_r[replay_id],diffL_r[replay_id],diffL_2_r[replay_id],predL_r[replay_id],distilL_r[replay_id] = self.loss_function(
                         x=x_temp_, y=y_[replay_id] if (y_ is not None) else None, x_recon=recon_batch, y_hat=y_hat,
                         scores=scores_[replay_id] if (scores_ is not None) else None, mu=mu, z=z, logvar=logvar,
                         allowed_classes=active_classes[replay_id] if active_classes is not None else None,
-                        mu_2=mu_2, logvar_2=logvar_2, mu_3=mu_3, logvar_3=logvar_3, js=self.js,
+                        diff=diff, mu_diff=mu_diff, logvar_diff=logvar_diff, mu_2=mu_2, logvar_2=logvar_2, 
+                        mu_3=mu_3, logvar_3=logvar_3, kl_js=self.kl_js, use_rep_factor=self.use_rep_factor,
                     )
                 else:
                     reconL_r[replay_id],variatL_r[replay_id],diffL_r[replay_id],diffL_2_r[replay_id],diffL_3_r[replay_id],predL_r[replay_id],distilL_r[replay_id] = self.loss_function(
                         x=x_temp_, y=y_[replay_id] if (y_ is not None) else None, x_recon=recon_batch, y_hat=y_hat,
                         scores=scores_[replay_id] if (scores_ is not None) else None, mu=mu, z=z, logvar=logvar,
                         allowed_classes=active_classes[replay_id] if active_classes is not None else None,
-                        mu_2=mu_2, logvar_2=logvar_2, mu_3=mu_3, logvar_3=logvar_3, mu_4=mu_4, logvar_4=logvar_4, js=self.js,
+                        diff=diff, mu_diff=mu_diff, logvar_diff=logvar_diff, mu_2=mu_2, logvar_2=logvar_2, 
+                        mu_3=mu_3, logvar_3=logvar_3, mu_4=mu_4, logvar_4=logvar_4, kl_js=self.kl_js, use_rep_factor=self.use_rep_factor,
                     ) ####
 
 
@@ -1061,14 +1081,14 @@ class AutoEncoder(ContinualLearner):
                 #### Weighting the difference loss...
                 if self.repulsion and diff:
                     if mu_3 is None:
-                        loss_replay[replay_id] += self.lamda_diff * diffL_r[replay_id]
+                        loss_replay[replay_id] += self.lamda_rep * diffL_r[replay_id]
                     elif mu_4 is None:
-                        loss_replay[replay_id] += self.lamda_diff * diffL_r[replay_id]
-                        loss_replay[replay_id] += self.lamda_diff * diffL_2_r[replay_id]
+                        loss_replay[replay_id] += self.lamda_rep * diffL_r[replay_id]
+                        loss_replay[replay_id] += self.lamda_rep * diffL_2_r[replay_id]
                     else:
-                        loss_replay[replay_id] += self.lamda_diff * diffL_r[replay_id]
-                        loss_replay[replay_id] += self.lamda_diff * diffL_2_r[replay_id]
-                        loss_replay[replay_id] += self.lamda_diff * diffL_3_r[replay_id]
+                        loss_replay[replay_id] += self.lamda_rep * diffL_r[replay_id]
+                        loss_replay[replay_id] += self.lamda_rep * diffL_2_r[replay_id]
+                        loss_replay[replay_id] += self.lamda_rep * diffL_3_r[replay_id]
                 ####
 
                 # If task-specific mask, backward pass needs to be performed before next task-mask is applied

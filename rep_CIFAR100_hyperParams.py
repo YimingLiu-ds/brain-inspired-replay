@@ -61,6 +61,10 @@ def get_result(args):
     file = open(fileName)
     ave = float(file.readline())
     file.close()
+    
+    f = open('results_output.txt', 'w')
+    f.write('\n'+str(ave)+'...'+str(args.r_dir))
+    f.close()
     # -return it
     return ave
 

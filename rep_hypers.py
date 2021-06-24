@@ -29,4 +29,5 @@ result = subprocess.run(['tsp', '-S 1', 'hare', 'run', '--rm', '--workdir /app',
          '--replay=generative', '--brain-inspired', '--si', '--repulsion', '--kl-js={}'.format('js'), \
          '--use-rep-f', '--rep-f={}'.format(1.5), '--tuning', 'iters=50'], capture_output=True, text=True)
 
+print("stdout:", result.stdout)
 print("stderr:", result.stderr)   

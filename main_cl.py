@@ -370,7 +370,7 @@ def run(args, verbose=False):
     if param_tuning:
         f_out = open("{}/tuning/{} {}.txt".format(args.r_dir, args.kl_js, args.rep_factor), 'w')
         #f_out.write('{}\n'.format(average_precs))
-        f_out.write('{} {}\n'.format(args.kl_js, args.rep_factor))
+        f_out.write('{} {} something is very wrong...\n'.format(args.kl_js, args.rep_factor))
         f_out.close()
 
     #-------------------------------------------------------------------------------------------------#

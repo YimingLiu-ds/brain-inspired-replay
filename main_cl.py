@@ -365,7 +365,20 @@ def run(args, verbose=False):
     output_file = open("{}/prec-{}-{} {}.txt".format(args.r_dir, param_stamp, args.kl_js, args.rep_factor), 'w')
     output_file.write('{}\n'.format(average_precs))
     output_file.close()
-
+    
+    try:
+        print(args.tuning)
+    except:
+        print('Args.tuning not recognised...')
+    try:
+        print(args.kl_js)
+    except:
+        print('Args.kl_js not recognised...')
+    try:
+        print(args.rep_factor)
+    except:
+        print('Args.rep_factor not recognised...')
+        
     param_tuning = False if not hasattr(args, 'tuning') else args.tuning
     if param_tuning:
         f_out = open("{}/tuning/{} {}.txt".format(args.r_dir, args.kl_js, args.rep_factor), 'w')

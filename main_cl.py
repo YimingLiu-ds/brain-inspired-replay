@@ -362,14 +362,15 @@ def run(args, verbose=False):
             "classes" if args.scenario=="class" else "tasks", average_precs
         ))
     # -write out to text file
-    output_file = open("{}/prec-{}.txt".format(args.r_dir, param_stamp), 'w')
+    output_file = open("{}/prec-{}-{} {}.txt".format(args.r_dir, param_stamp, args.kl_js, args.rep_factor), 'w')
     output_file.write('{}\n'.format(average_precs))
     output_file.close()
 
     param_tuning = False if not hasattr(args, 'tuning') else args.tuning
     if param_tuning:
         f_out = open("{}/tuning/{} {}.txt".format(args.r_dir, args.kl_js, args.rep_factor), 'w')
-        f_out.write('{}\n'.format(average_precs))
+        #f_out.write('{}\n'.format(average_precs))
+        f_out.write('{} {}\n'.format(args.kl_js, args.rep_factor))
         f_out.close()
 
     #-------------------------------------------------------------------------------------------------#

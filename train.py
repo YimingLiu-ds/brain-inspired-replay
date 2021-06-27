@@ -281,12 +281,14 @@ def train_cl(model, train_datasets, replay_mode="none", scenario="task", rnt=Non
             scores_ = scores_ if (model.replay_targets=="soft") else None
             
             #### Finding top 2 scores predicted by classifier for each replay 'image'...
-            #top_scores_ = torch.topk(scores_, 2, dim=1)[1] if scores_ is not None else None
-            
             if scores_ is not None:
-                tk = 4 if scores_.size()[1] > 3 else scores_.size()[1]
+                if not args.use_rep_factor:
+                    tk = int(args.n_rep + 1) if scores_.size()[1] > args.n_rep else scores_.size()[1]
+                else:
+                    tk = 4 if scores_.size()[1] > 3 else scores_.size()[1]
             else:
                 tk = None
+   
             top_scores_ = torch.topk(scores_, tk, dim=1)[1] if scores_ is not None else None
             ####
 

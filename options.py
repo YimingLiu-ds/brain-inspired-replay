@@ -209,6 +209,7 @@ def add_replay_options(parser, only_MNIST=False, compare_code="none", **kwargs):
         replay.add_argument('--use-rep-f', action='store_true', dest='use_rep_factor', help='use repulsion factor (def=False)')
         replay.add_argument('--rep-f', type=float, default=1.5, dest='rep_factor', help='repulsion factor (def=1.5)')
         replay.add_argument('--tuning', action='store_true', dest='tuning', help="performing hyperparameter tuning (repulsion)")
+        replay.add_argument('--n-rep', type=int, default=1, dest='n_rep', help='number of neighbours to repel (def=1)')
     return parser
 
 

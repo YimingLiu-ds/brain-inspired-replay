@@ -46,6 +46,7 @@ def define_autoencoder(args, config, device, generator=False, convE=None):
             kl_js='js' if not hasattr(args, 'kl_js') else args.kl_js,
             use_rep_factor=False if not hasattr(args, 'use_rep_factor') else args.use_rep_factor,
             rep_factor=1.5 if not hasattr(args, 'rep_factor') else args.rep_factor,
+            n_rep=1 if not hasattr(args, 'n_rep') else args.n_rep,
             param_tuning=False if not hasattr(args, 'tuning') else args.tuning
             ####
         ).to(device)
@@ -82,6 +83,7 @@ def define_autoencoder(args, config, device, generator=False, convE=None):
             kl_js='js' if not hasattr(args, 'kl_js') else args.kl_js,
             use_rep_factor=False if not hasattr(args, 'use_rep_factor') else args.use_rep_factor,
             rep_factor=1.5 if not hasattr(args, 'rep_factor') else args.rep_factor,
+            n_rep=1 if not hasattr(args, 'n_rep') else args.n_rep,
             param_tuning=False if not hasattr(args, 'tuning') else args.tuning
             ####
         ).to(device)

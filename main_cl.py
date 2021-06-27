@@ -362,7 +362,7 @@ def run(args, verbose=False):
             "classes" if args.scenario=="class" else "tasks", average_precs
         ))
     # -write out to text file
-    output_file = open("{}/prec-{}-{} {} {}.txt".format(args.r_dir, param_stamp, args.kl_js, args.rep_factor, args.repl), 'w+')
+    output_file = open("{}/prec-{}-{} {} {}.txt".format(args.r_dir, param_stamp, args.kl_js, args.rep_factor, args.repl, args.use_rep_factor, args.n_rep), 'w+')
     output_file.write('{}\n'.format(average_precs))
     output_file.close()
 

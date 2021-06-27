@@ -368,7 +368,7 @@ def run(args, verbose=False):
 
     param_tuning = False if not hasattr(args, 'tuning') else args.tuning
     if param_tuning:
-        f_out = open("{}/tuning/{} {}.txt".format(args.r_dir, args.kl_js, args.rep_factor), 'a+')
+        f_out = open("{}/tuning/{} f6 js.txt".format(args.r_dir, args.repl), 'a+')
         f_out.write('{}\n'.format(average_precs))
         f_out.close()
 

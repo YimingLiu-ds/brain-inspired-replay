@@ -32,7 +32,7 @@ class AutoEncoder(ContinualLearner):
                  # -training-specific settings (can be changed after setting up model)
                  lamda_pl=0., lamda_rcl=1., lamda_vl=1., lamda_rep=1., 
                  #### Determine whether or not to implement class repulsion...
-                 repulsion=False, kl_js='js', use_rep_factor=False, rep_factor=1.5, **kwargs):
+                 repulsion=False, kl_js='js', use_rep_factor=False, rep_factor=1.5, apply_mask=False, **kwargs):
 
         # Set configurations for setting up the model
         super().__init__()
@@ -166,6 +166,7 @@ class AutoEncoder(ContinualLearner):
         ### Whether to use the repulsion factor & its magnitude...
         self.use_rep_factor = use_rep_factor
         self.rep_factor = rep_factor
+        self.apply_mask = apply_mask
 
 
     ##------ NAMES --------##
@@ -945,7 +946,14 @@ class AutoEncoder(ContinualLearner):
                     logvar_diff = None
 
                     specific_classes = top_scores_.to('cpu').numpy()
-                    sc_size = specific_classes.shape
+                    act_sc_size = specific_classes.shape
+                    if self.apply_mask:
+                        if task<4 or task==6:
+                            sc_size = (act_sc_size[0],2)
+                        else:
+                            sc_size = act_sc_size
+                    else:
+                        sc_size = act_sc_size
                     specific_classes_0 = specific_classes[:,0].reshape(-1)
                     specific_classes_1 = specific_classes[:,1].reshape(-1)
                     specific_classes_2 = specific_classes[:,2].reshape(-1) if (sc_size[1] > 2) else None
@@ -953,15 +961,19 @@ class AutoEncoder(ContinualLearner):
                     
                     ##
                     if self.use_rep_factor:
+                        if self.apply_mask:
+                            rep_f = 1e8 if (task<4 or task==6 or task>8) else self.rep_factor
+                        else:
+                            rep_f = self.rep_factor
                         # Check probabilities...
                         y_probabilities = F.softmax(scores_[0], dim=1)
                         y_probs = y_probabilities[np.arange(sc_size[0]), specific_classes_0].to('cpu').numpy()
                         y_probs_1 = y_probabilities[np.arange(sc_size[0]), specific_classes_1].to('cpu').numpy()
                         y_probs_2 = y_probabilities[np.arange(sc_size[0]), specific_classes_2].to('cpu').numpy() if (specific_classes_2 is not None) else None
                         y_probs_3 = y_probabilities[np.arange(sc_size[0]), specific_classes_3].to('cpu').numpy() if (specific_classes_3 is not None) else None
-                        samples_to_use = np.where(y_probs < (self.rep_factor * y_probs_1))[0]
-                        samples_to_use_2 = np.where(y_probs < (self.rep_factor * y_probs_2))[0] if (specific_classes_2 is not None) else None
-                        samples_to_use_3 = np.where(y_probs < (self.rep_factor * y_probs_3))[0] if (specific_classes_3 is not None) else None
+                        samples_to_use = np.where(y_probs < (rep_f * y_probs_1))[0]
+                        samples_to_use_2 = np.where(y_probs < (rep_f * y_probs_2))[0] if (specific_classes_2 is not None) else None
+                        samples_to_use_3 = np.where(y_probs < (rep_f * y_probs_3))[0] if (specific_classes_3 is not None) else None
                     else:
                         samples_to_use = None
                     ##

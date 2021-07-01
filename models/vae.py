@@ -329,7 +329,7 @@ class AutoEncoder(ContinualLearner):
                 - [sample_mode]         <int> to sample from specific mode of [z]-distr'n, overwrites [allowed_classes]
                 - [allowed_domains]     <list> of [task_ids] which are allowed to be used for 'task-gates' (if used)
                                           NOTE: currently only relevant if [scenario]=="domain"
-                - [specific_classes]    <tensor> of specific [class_ids] from which to sample
+                - [specific_classes]    <tensor> of specific [class_ids] from which to sample, overwrites [sample_mode]
 
         OUTPUT: - [X]         <4D-tensor> generated images / image-features
                 - [y_used]    <ndarray> labels of classes intended to be sampled  (using <class_ids>)
@@ -369,8 +369,11 @@ class AutoEncoder(ContinualLearner):
                     y_used = np.repeat(int(sample_mode / self.modes_per_class), size) if self.per_class else None
 
             else: #### Getting random modes from specific list of classes...
-                rand_modes = np.random.choice(np.arange(self.modes_per_class), specific_classes.shape[0], replace=True)
-                sampled_modes = (specific_classes * self.modes_per_class) + rand_modes
+                #rand_modes = np.random.choice(np.arange(self.modes_per_class), specific_classes.shape[0], replace=True)
+                #rand_modes = torch.tensor(np.random.choice(np.arange(self.modes_per_class), specific_classes.shape[0], replace=True), device=self._device())
+                sampled_modes = specific_classes
+                #sampled_modes = (specific_classes * self.modes_per_class) + rand_modes
+                #sampled_modes = specific_classes * torch.tensor(self.modes_per_class, device=self._device()) + rand_modes
                 ####
                 
         else:
@@ -383,8 +386,10 @@ class AutoEncoder(ContinualLearner):
                 prior_means = self.z_class_means
                 prior_logvars = self.z_class_logvars
                 # -for each sample to be generated, select the previously sampled mode
-                z_means = prior_means[sampled_modes, :]
-                z_logvars = prior_logvars[sampled_modes, :]
+                #z_means = prior_means[sampled_modes, :]
+                #z_logvars = prior_logvars[sampled_modes, :]
+                z_means = prior_means[sampled_modes]
+                z_logvars = prior_logvars[sampled_modes]
                 return z_means, z_logvars
             ####
             else:
@@ -578,7 +583,7 @@ class AutoEncoder(ContinualLearner):
             diffL = 0.5 * (diffL_1 + diffL_2)
         else:
             diffL = 0.5 * torch.sum(torch.exp(logvar_1 - logvar_2) + torch.mul(torch.pow((mu_2 - mu_1), 2), torch.exp(-logvar_2)) + logvar_2 - logvar_1 - 1, dim=1)
-        return torch.pow(diffL, -1) #* 1e3
+        return torch.pow(diffL, -1)
     ############################################################################################################################
     ############################################################################################################################
     ############################################################################################################################
@@ -642,8 +647,6 @@ class AutoEncoder(ContinualLearner):
                 diffL = self.calculate_diff_loss(mu_1=mu if mu_diff is None else mu_diff, logvar_1=logvar if logvar_diff is None else logvar_diff, \
                                                  mu_2=mu_2, logvar_2=logvar_2, kl_js=kl_js)
                 diffL = lf.weighted_average(diffL, weights=batch_weights, dim=0)
-                #if mu_diff is not None:
-                #    diffL *= mu_diff.size()[0]
                 diffL /= (self.image_channels * self.image_size ** 2)
                 
             else:
@@ -945,51 +948,60 @@ class AutoEncoder(ContinualLearner):
                     mu_diff = None
                     logvar_diff = None
 
-                    specific_classes = top_scores_.to('cpu').numpy()
-                    act_sc_size = specific_classes.shape
+                    #specific_classes = top_scores_.to('cpu').numpy()
+                    #act_sc_size = specific_classes.shape
+                    act_sc_size = list(top_scores_.shape)
+                    
                     if self.apply_mask:
-                        if task<4 or task==6:
+                        if task<4 or task==7:
                             sc_size = (act_sc_size[0],2)
                         else:
                             sc_size = act_sc_size
                     else:
                         sc_size = act_sc_size
-                    specific_classes_0 = specific_classes[:,0].reshape(-1)
-                    specific_classes_1 = specific_classes[:,1].reshape(-1)
-                    specific_classes_2 = specific_classes[:,2].reshape(-1) if (sc_size[1] > 2) else None
-                    specific_classes_3 = specific_classes[:,3].reshape(-1) if (sc_size[1] > 3) else None
+
+                    specific_classes_0 = torch.reshape(top_scores_[:,0], (-1,))
+                    specific_classes_1 = torch.reshape(top_scores_[:,1], (-1,))
+                    specific_classes_2 = torch.reshape(top_scores_[:,2], (-1,)) if (sc_size[1] > 2) else None
+                    specific_classes_3 = torch.reshape(top_scores_[:,3], (-1,)) if (sc_size[1] > 3) else None
+                    
                     
                     ##
                     if self.use_rep_factor:
                         if self.apply_mask:
-                            rep_f = 1e8 if (task<4 or task==6 or task>8) else self.rep_factor
+                            rep_f = 1e8 if (task<4 or task==7 or task>8) else self.rep_factor
                         else:
                             rep_f = self.rep_factor
+                        
                         # Check probabilities...
                         y_probabilities = F.softmax(scores_[0], dim=1)
-                        y_probs = y_probabilities[np.arange(sc_size[0]), specific_classes_0].to('cpu').numpy()
-                        y_probs_1 = y_probabilities[np.arange(sc_size[0]), specific_classes_1].to('cpu').numpy()
-                        y_probs_2 = y_probabilities[np.arange(sc_size[0]), specific_classes_2].to('cpu').numpy() if (specific_classes_2 is not None) else None
-                        y_probs_3 = y_probabilities[np.arange(sc_size[0]), specific_classes_3].to('cpu').numpy() if (specific_classes_3 is not None) else None
-                        samples_to_use = np.where(y_probs < (rep_f * y_probs_1))[0]
-                        samples_to_use_2 = np.where(y_probs < (rep_f * y_probs_2))[0] if (specific_classes_2 is not None) else None
-                        samples_to_use_3 = np.where(y_probs < (rep_f * y_probs_3))[0] if (specific_classes_3 is not None) else None
+                        sc_0 = torch.reshape(specific_classes_0, (-1,1)).expand(-1, sc_size[0])
+                        y_probs = torch.gather(y_probabilities, 1, sc_0)[:, 0]
+                        sc_1 = torch.reshape(specific_classes_1, (-1,1)).expand(-1, sc_size[0])
+                        y_probs_1 = torch.gather(y_probabilities, 1, sc_1)[:, 0]
+                        sc_2 = torch.reshape(specific_classes_2, (-1,1)).expand(-1, sc_size[0]) if (specific_classes_2 is not None) else None
+                        y_probs_2 = torch.gather(y_probabilities, 1, sc_2)[:, 0] if (specific_classes_2 is not None) else None
+                        sc_3 = torch.reshape(specific_classes_3, (-1,1)).expand(-1, sc_size[0]) if (specific_classes_3 is not None) else None
+                        y_probs_3 = torch.gather(y_probabilities, 1, sc_3)[:, 0] if (specific_classes_3 is not None) else None
+                        
+                        samples_to_use = torch.where(y_probs < (rep_f * y_probs_1))[0]
+                        samples_to_use_2 = torch.where(y_probs < (rep_f * y_probs_2))[0] if (specific_classes_2 is not None) else None
+                        samples_to_use_3 = torch.where(y_probs < (rep_f * y_probs_3))[0] if (specific_classes_3 is not None) else None
                     else:
                         samples_to_use = None
                     ##
-                    if (samples_to_use is None) or (samples_to_use.size > 0):
-                        specific_classes_1 = specific_classes[:,1].reshape(-1)
+                    if (samples_to_use is None) or (samples_to_use.nelement() > 0):
                         if samples_to_use is not None:
                             mu_diff = mu[samples_to_use]
                             logvar_diff = logvar[samples_to_use]
                             specific_classes_1 = specific_classes_1[samples_to_use]
-                            if (samples_to_use_2 is not None) and (samples_to_use_2.size > 0):
+                            if (samples_to_use_2 is not None) and (samples_to_use_2.nelement() > 0):
                                 mu_diff_3 = mu[samples_to_use_2]
                                 logvar_diff_3 = logvar[samples_to_use_2]
                                 specific_classes_2 = specific_classes_2[samples_to_use_2]
                                 mu_3, logvar_3 = self.sample(batch_size_replay, specific_classes=specific_classes_2, only_z=True)
                                 mu_3, logvar_3 = (mu_diff_3, mu_3), (logvar_diff_3, logvar_3)
-                            if (samples_to_use_3 is not None) and (samples_to_use_3.size > 0):
+                            if (samples_to_use_3 is not None) and (samples_to_use_3.nelement() > 0):
                                 mu_diff_4 = mu[samples_to_use_3]
                                 logvar_diff_4 = logvar[samples_to_use_3]
                                 specific_classes_3 = specific_classes_3[samples_to_use_3]
@@ -1046,9 +1058,9 @@ class AutoEncoder(ContinualLearner):
 
 ####
                 #if (batch_index is not None and batch_index==1):
-                #    for name, param in self.named_parameters():
-                #        if param.requires_grad:
-                #            print(name)
+                #    print(self.z_class_means[:,0])
+                #    print('-----')
+                #    print(self.z_class_logvars[:,0])
 ####
 
                 # Calculate all losses

@@ -574,6 +574,7 @@ class AutoEncoder(ContinualLearner):
         
         #### KL-divergence between two gaussian distributions...
         # --> calculate analytically
+        keep_inds = None
         if (keep_inds is not None) and (len(keep_inds)!=list(mu_1.shape)[0]):
             mu_1, logvar_1, mu_2, logvar_2 = mu_1[keep_inds], logvar_1[keep_inds], mu_2[keep_inds], logvar_2[keep_inds]
             
@@ -588,7 +589,7 @@ class AutoEncoder(ContinualLearner):
         else:
             diffL = 0.5 * torch.sum(torch.exp(logvar_1 - logvar_2) + torch.mul(torch.pow((mu_2 - mu_1), 2), torch.exp(-logvar_2)) + logvar_2 - logvar_1 - 1, dim=1)
         
-        return torch.pow(diffL, -1) if (keep_inds is None) else torch.pow(diffL, -1) / len(keep_inds)
+        return torch.pow(diffL, -1) # if (keep_inds is None) else torch.pow(diffL, -1) / len(keep_inds)
     
     
     def calculate_rep2_loss(self, z_1, mu_1, logvar_1, z_2, mu_2, logvar_2):
@@ -993,7 +994,7 @@ class AutoEncoder(ContinualLearner):
                     diff = True
                     mu_diff = None
                     logvar_diff = None
-                    rep2, averaged = True, True
+                    rep2, averaged = True, False
 
                     #specific_classes = top_scores_.to('cpu').numpy()
                     #act_sc_size = specific_classes.shape
@@ -1065,16 +1066,22 @@ class AutoEncoder(ContinualLearner):
 
                     uniq_sc_0 = torch.unique(specific_classes_0)
                     inds_sc_0 = []
-                    mean_mu_0 = []
-                    mean_logvar_0 = []
+                    
 
                     if rep2 and ((samples_to_use is None) or (samples_to_use.nelement() > 0)):
+                        #uniq_size = uniq_sc_0.nelement()
+                        mean_mu_0 = []
+                        mean_logvar_0 = []
+                        #mean_mu_0 = torch.empty(uniq_size, device=self._device())
+                        #mean_logvar_0 = torch.empty(uniq_size, device=self._device())
                         if uniq_sc_0.nelement() > 0:
                             for i, uniq_c in enumerate(uniq_sc_0):
                                 inds = torch.where(specific_classes_0==uniq_sc_0[i])[0]
                                 if averaged:
                                     mean_mu_0.append(torch.reshape(torch.mean(mu[inds], dim=0), (1,-1)))
+                                    #mean_mu_0[i] = torch.reshape(torch.mean(mu[inds], dim=0), (1,-1))
                                     #mean_logvar_0.append(torch.reshape(torch.mean(logvar[inds], dim=0), (1,-1)))
+                                    #mean_logvar_0[i] = torch.log(torch.reshape(torch.sum(torch.exp(logvar[inds]), dim=0), (1,-1))) - (2*torch.log(inds.nelement()))
                                     mean_logvar_0.append(torch.log(torch.reshape(torch.sum(torch.exp(logvar[inds]), dim=0), (1,-1)) / (inds.nelement()**2)))
                                 else:
                                     r_ind = np.random.choice(np.arange(inds.nelement()), 1)[0]
@@ -1122,7 +1129,7 @@ class AutoEncoder(ContinualLearner):
                             else:
                                 inds_1 = torch.tensor(list(map(functools.partial(map_inds, uniq=uniq_sc_0, inds=inds_sc_0), specific_classes_1)), device=self._device())
                                 mu_b, logvar_b = mu[inds_1], logvar[inds_1]
-    
+
                             if len(keep_inds)==0:
                                 diff = False
     

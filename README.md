@@ -1,5 +1,6 @@
-# Brain-Inspired Replay
-A PyTorch implementation of the continual learning experiments with deep neural networks described in the 
+# Research Project:
+## Exploring the application of brain-inspired memory exaggeration to a state-of-the-art continual learning model
+Adaptions brain-inpsired adaptions to the PyTorch implementation of the continual learning experiments with deep neural networks described in the 
 following paper:
 * Brain-inspired replay for continual learning with artificial neural networks: https://www.nature.com/articles/s41467-020-17866-2
 

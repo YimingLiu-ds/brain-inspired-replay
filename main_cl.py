@@ -379,12 +379,12 @@ def run(args, verbose=False):
     # -write out to text file
     #output_file = open("{}/prec-{} {} {} {} {} {}.txt".format(args.r_dir, param_stamp, args.kl_js, args.rep_factor, args.repl, args.use_rep_factor, args.n_rep), 'a+')
     output_file = open("{}/prec-{} {}bsz {}rbsz {}iters.txt".format(args.r_dir, param_stamp, args.batch, args.batch_replay, args.iters), 'a+')
-    output_file.write('\n Accuracy of final model on test-set:')
+    output_file.write('\nAccuracy of final model on test-set:')
     for i in range(args.tasks):
-        output_file.write(" - {} {}: {:.4f}".format("For classes from task" if args.scenario=="class" else "Task", i+1, precs[i]))
-        output_file.write('=> Average accuracy over all {} {}: {:.4f}\n'.format(
-            args.tasks*classes_per_task if args.scenario=="class" else args.tasks,
-            "classes" if args.scenario=="class" else "tasks", average_precs))
+        output_file.write("\n - {} {}: {:.4f}".format("For classes from task" if args.scenario=="class" else "Task", i+1, precs[i]))
+    output_file.write('\n\n=> Average accuracy over all {} {}: {:.4f}\n'.format(
+        args.tasks*classes_per_task if args.scenario=="class" else args.tasks,
+        "classes" if args.scenario=="class" else "tasks", average_precs))
     output_file.close()
 
     param_tuning = False if not hasattr(args, 'tuning') else args.tuning

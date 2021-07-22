@@ -28,7 +28,7 @@ def label_squeezing_collate_fn(batch):
     return x, y.long().squeeze()
 
 
-def get_data_loader(dataset, batch_size, cuda=False, collate_fn=label_squeezing_collate_fn, drop_last=False):
+def get_data_loader(dataset, batch_size, cuda=False, collate_fn=label_squeezing_collate_fn, drop_last=False, augment=False):
     '''Return <DataLoader>-object for the provided <DataSet>-object [dataset].'''
 
     # Create and return the <DataLoader>-object

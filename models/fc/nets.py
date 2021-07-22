@@ -13,7 +13,7 @@ class MLP(nn.Module):
 
     def __init__(self, input_size=1000, output_size=10, layers=2, hid_size=1000, hid_smooth=None, size_per_layer=None,
                  drop=0, batch_norm=True, nl="relu", bias=True, excitability=False, excit_buffer=False, gated=False,
-                 output='normal'):
+                 output='normal', final_norm=False):
         '''sizes: 0th=[input], 1st=[hid_size], ..., 1st-to-last=[hid_smooth], last=[output].
         [input_size]       # of inputs
         [output_size]      # of units in final layer
@@ -69,7 +69,7 @@ class MLP(nn.Module):
             # define and set the fully connected layer
             layer = fc_layer(
                 in_size, out_size, bias=bias, excitability=excitability, excit_buffer=excit_buffer,
-                batch_norm=False if (lay_id==self.layers and not output=="normal") else batch_norm, gated=gated,
+                batch_norm=False if ((lay_id==self.layers) and (not output=="normal") and (not final_norm)) else batch_norm, gated=gated,
                 nl=("none" if output=="none" else nn.Sigmoid()) if (
                     lay_id==self.layers and not output=="normal"
                 ) else nl, drop=drop if lay_id>1 else 0.,

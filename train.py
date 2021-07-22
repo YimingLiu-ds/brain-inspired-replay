@@ -1,10 +1,19 @@
 import numpy as np
 import torch
 from torch.utils.data import ConcatDataset
+from torchvision import transforms as tf
 import tqdm
 import copy
 import utils
 from models.cl.continual_learner import ContinualLearner
+
+def transform(x):
+    #transformation = tf.Compose([
+    #    #tf.RandomHorizontalFlip(),
+    #    tf.ColorJitter(0.3, 0.3, 0.3, 0.07),
+    #    tf.ToTensor(),])
+    #scripted_transforms = torch.jit.script(transformation)
+    return torch.flip(x, [-1])
 
 
 def train(model, train_loader, iters, loss_cbs=list(), eval_cbs=list(), save_every=None, m_dir="./store/models",
@@ -75,6 +84,9 @@ def train_cl(model, train_datasets, replay_mode="none", scenario="task", rnt=Non
     [feedback]          <bool>, if True and [replay_mode]="generative", the main model is used for generating replay
     [only_last]         <bool>, only train on final task / episode
     [*_cbs]             <list> of call-back functions to evaluate training-progress'''
+    
+    #### Should augmented views be created?...
+    use_views = True
 
     # Should convolutional layers be frozen?
     freeze_convE = (utils.checkattr(args, "freeze_convE") and hasattr(args, "depth") and args.depth>0)
@@ -178,6 +190,10 @@ def train_cl(model, train_datasets, replay_mode="none", scenario="task", rnt=Non
                 x, y = next(data_loader)                                    #--> sample training data of current task
                 y = y-classes_per_task*(task-1) if scenario=="task" else y  #--> ITL: adjust y-targets to 'active range'
                 x, y = x.to(device), y.to(device)                           #--> transfer them to correct device
+                #### Create two views by augmenting data...
+                if use_views:
+                    # Return two views...
+                    x = [x, transform(x)]
                 #y = y.expand(1) if len(y.size())==1 else y                 #--> hack for if batch-size is 1
             else:
                 x = y = task_used = None  #--> all tasks are "treated as replay"
@@ -237,6 +253,11 @@ def train_cl(model, train_datasets, replay_mode="none", scenario="task", rnt=Non
                     x_ = x_temp_[0]
                     task_used = x_temp_[2]
 
+                    #### Create two views by augmenting data...
+                    if use_views:
+                        # Return two views...
+                        x_ = [x_, transform(x_)]
+
             #--------------------------------------------OUTPUTS----------------------------------------------------#
 
             if Generative or Current:
@@ -244,7 +265,7 @@ def train_cl(model, train_datasets, replay_mode="none", scenario="task", rnt=Non
                 if scenario in ("domain", "class") and previous_model.mask_dict is None:
                     # -if replay does not need to be evaluated for each task (ie, not Task-IL and no task-specific mask)
                     with torch.no_grad():
-                        all_scores_ = previous_model.classify(x_, not_hidden=False if Generative else True)
+                        all_scores_ = previous_model.classify(x_ if not use_views else x_[0], not_hidden=False if Generative else True)
                     scores_ = all_scores_[:, :(classes_per_task*(task-1))] if (
                             scenario=="class"
                     ) else all_scores_ # -> when scenario=="class", zero probs will be added in [loss_fn_kd]-function
@@ -294,7 +315,9 @@ def train_cl(model, train_datasets, replay_mode="none", scenario="task", rnt=Non
                 ####
             else:
                 top_scores_ = None
-
+            
+            ### Image exaggeration...
+            
 
             #-----------------Train model(s)------------------#
 
@@ -306,7 +329,8 @@ def train_cl(model, train_datasets, replay_mode="none", scenario="task", rnt=Non
                                                 tasks_=task_used, active_classes=active_classes, task=task, rnt=(
                                                     1. if task==1 else 1./task
                                                 ) if rnt is None else rnt, freeze_convE=freeze_convE,
-                                                replay_not_hidden=False if Generative else True, batch_size_replay=batch_size_replay, task_n=task)
+                                                replay_not_hidden=False if Generative else True, batch_size=batch_size, 
+                                                batch_size_replay=batch_size_replay, task_n=task, use_views=use_views)
 
                 # Update running parameter importance estimates in W
                 if isinstance(model, ContinualLearner) and model.si_c>0:

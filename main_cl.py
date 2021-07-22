@@ -6,6 +6,7 @@ import torch
 from torch import optim
 from torch.utils.data import ConcatDataset
 from torch.nn import functional as F
+from itertools import chain
 
 # -custom-written libraries
 import options
@@ -114,12 +115,26 @@ def run(args, verbose=False):
     if utils.checkattr(args, 'feedback') and utils.checkattr(args, "freeze_convD"):
         for param in model.convD.parameters():
             param.requires_grad = False
+    ####
+    for param in model.fcProj.parameters():
+        param.requires_grad = False
+    ####
 
     # Define optimizer (only optimize parameters that "requires_grad")
     model.optim_list = [
         {'params': filter(lambda p: p.requires_grad, model.parameters()), 'lr': args.lr},
     ]
     model.optimizer = optim.Adam(model.optim_list, betas=(0.9, 0.999))
+
+    #### Define encoder optimizer (only optimize the encoder & MLP parameters)...
+    if utils.checkattr(args, "freeze_convE"):
+        for param in chain(model.convE.parameters(), model.fcProj.parameters()):
+            param.requires_grad = True
+
+    model.E_optim_list = [
+        {'params': chain(model.convE.parameters(), model.fcProj.parameters()), 'lr': args.lr},
+    ]
+    model.E_optimizer = optim.Adam(model.E_optim_list, betas=(0.9, 0.999))
 
 
     #-------------------------------------------------------------------------------------------------#

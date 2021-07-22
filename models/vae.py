@@ -10,6 +10,8 @@ from models.fc.layers import fc_layer,fc_layer_split, fc_layer_fixed_gates
 from models.cl.continual_learner import ContinualLearner
 from utils import get_data_loader
 import functools
+import matplotlib.pyplot as plt
+from itertools import chain
 
 
 
@@ -66,6 +68,10 @@ class AutoEncoder(ContinualLearner):
         # Optimizer (needs to be set before training starts))
         self.optimizer = None
         self.optim_list = []
+        
+        #### Encoder optimiser...
+        self.E_optimizer = None
+        self.E_optim_list = []
 
         # Prior-related parameters
         self.prior = prior
@@ -111,6 +117,9 @@ class AutoEncoder(ContinualLearner):
         #------------------------------------------------------------------------------------------#
         self.fcE = MLP(size_per_layer=self.fc_layer_sizes, drop=fc_drop, batch_norm=fc_bn, nl=fc_nl,
                        excit_buffer=excit_buffer, gated=fc_gated)
+        ###### Can add extra layers here ######
+        self.fcProj = MLP(size_per_layer=[1024,2048,128], batch_norm=False, nl='relu', output='none') #, final_norm=True)
+
         # to z
         self.toZ = fc_layer_split(real_h_dim, z_dim, nl_mean='none', nl_logvar='none')#, drop=fc_drop)
 
@@ -198,6 +207,7 @@ class AutoEncoder(ContinualLearner):
         list = []
         list += self.convE.list_init_layers()
         list += self.fcE.list_init_layers()
+        list += self.fcProj.list_init_layers()
         if hasattr(self, "classifier"):
             list += self.classifier.list_init_layers()
         list += self.toZ.list_init_layers()
@@ -224,17 +234,19 @@ class AutoEncoder(ContinualLearner):
 
     ##------ FORWARD FUNCTIONS --------##
 
-    def encode(self, x, not_hidden=False):
+    def encode(self, x, not_hidden=False, use_views=False, batch_size=None):
         '''Pass input through feed-forward connections, to get [z_mean], [z_logvar] and [hE].
         Input [x] is either an image or, if [self.hidden], extracted "intermediate" or "internal" image features.'''
         # Forward-pass through conv-layers
         hidden_x = x if (self.hidden and not not_hidden) else self.convE(x)
         image_features = self.flatten(hidden_x)
         # Forward-pass through fc-layers
-        hE = self.fcE(image_features)
+        hE = self.fcE(image_features[:batch_size]) if use_views else self.fcE(image_features)
+        ###### Can add extra dense layers here (contrastive learning) ######
+        proj_z = F.normalize(self.fcProj(image_features), dim=1)
         # Get parameters for reparametrization
         (z_mean, z_logvar) = self.toZ(hE)
-        return z_mean, z_logvar, hE, hidden_x
+        return z_mean, z_logvar, hE, hidden_x, proj_z
 
     def classify(self, x, not_hidden=False, reparameterize=True, **kwargs):
         '''For input [x] (image or extracted "internal" image features), return all predicted "scores"/"logits".'''
@@ -275,7 +287,7 @@ class AutoEncoder(ContinualLearner):
         image_recon = self.convD(self.to_image(image_features))
         return image_recon
 
-    def forward(self, x, gate_input=None, full=False, reparameterize=True, **kwargs):
+    def forward(self, x, gate_input=None, full=False, reparameterize=True, use_views=False, batch_size=None, **kwargs):
         '''Forward function to propagate [x] through the encoder, reparametrization and decoder.
 
         Input: - [x]          <4D-tensor> of shape [batch_size]x[channels]x[image_size]x[image_size]
@@ -292,7 +304,7 @@ class AutoEncoder(ContinualLearner):
         If [full] is False, output is simply the predicted logits (i.e., [y_hat]).'''
         if full:  ## Used for Class-IL...
             # -encode (forward), reparameterize and decode (backward)
-            mu, logvar, hE, hidden_x = self.encode(x)
+            mu, logvar, hE, hidden_x, proj_z = self.encode(x, use_views=use_views, batch_size=batch_size)
             z = self.reparameterize(mu, logvar) if reparameterize else mu
             gate_input = gate_input if self.dg_gates else None
             x_recon = self.decode(z, gate_input=gate_input)
@@ -305,7 +317,7 @@ class AutoEncoder(ContinualLearner):
             else:
                 y_hat = None
             # -return
-            return (x_recon, y_hat, mu, logvar, z)
+            return (x_recon, y_hat, mu, logvar, z, proj_z)
         else:
             return self.classify(x, reparameterize=reparameterize) #-> if [full]=False, only forward pass for prediction
 
@@ -391,6 +403,8 @@ class AutoEncoder(ContinualLearner):
                 #z_logvars = prior_logvars[sampled_modes, :]
                 z_means = prior_means[sampled_modes]
                 z_logvars = prior_logvars[sampled_modes]
+                # set model to train()-mode
+                self.train()
                 return z_means, z_logvars
             ####
             else:
@@ -616,7 +630,55 @@ class AutoEncoder(ContinualLearner):
         ## Combine
         diffL = torch.exp(log_q1_z_x) * (log_q1_z_x - log_q2_z_x) + 1e-6
         return torch.pow(diffL, -1)
+
+    def calculate_contr_loss(self, proj_z, y, temp=0.07, base_temp=0.07):
+        '''Calculate contrastive loss on encoder and projection head.
         
+        INPUT:  - [proj_z]     <3D tensor> [batch_size]x[n_views]x[proj_output_size]
+
+        OUTPUT: - [contrL]     <1D tensor> of length [batch_size]'''
+
+        batch_size = proj_z.shape[0]
+        y = y.contiguous().view(-1, 1)
+        if y.shape[0] != batch_size:
+            raise ValueError('Num of labels does not match num of features!!')
+
+        mask = torch.eq(y, y.T).float().to(self._device())
+
+        contr_count = proj_z.shape[1]
+        contr_feature = torch.cat(torch.unbind(proj_z, dim=1), dim=0)
+        anchor_feature = contr_feature
+        anchor_count = contr_count
+
+        anchor_dot_contr = torch.div(
+            torch.matmul(anchor_feature, contr_feature.T), temp)
+
+        # For numerical stability
+        logits_max, _ = torch.max(anchor_dot_contr, dim=1, keepdim=True)
+        logits = anchor_dot_contr - logits_max.detach()     
+
+        # Tile mask
+        mask = mask.repeat(anchor_count, contr_count)
+
+        # Mask-out self-contrast cases
+        logits_mask = torch.scatter(torch.ones_like(mask), 1,
+            torch.arange(batch_size * anchor_count).view(-1, 1).to(self._device()), 0)
+
+        mask = mask * logits_mask
+
+        # Compute log_prob
+        exp_logits = torch.exp(logits) * logits_mask
+
+        log_prob = logits - torch.log(exp_logits.sum(1, keepdim=True))
+
+        # Compute mean of log-likelihood over positive
+        mean_log_prob_pos = (mask * log_prob).sum(1) / mask.sum(1)  ## log(exp/sum(exp))/|P(i)|
+
+        # Contrastive loss...
+        contrL = - (temp / base_temp) * mean_log_prob_pos
+        #print(' Shape: ', contrL.shape)
+        return contrL.view(anchor_count, batch_size).mean()
+
     ############################################################################################################################
     ############################################################################################################################
     ############################################################################################################################
@@ -625,7 +687,7 @@ class AutoEncoder(ContinualLearner):
     def loss_function(self, x, y, x_recon, y_hat, scores, mu, z, logvar=None, allowed_classes=None, batch_weights=None,
                       diff=False, mu_diff=None, logvar_diff=None, mu_2=None, logvar_2=None, mu_3=None, logvar_3=None,
                       mu_4=None, logvar_4=None, kl_js='js', use_rep_factor=False, mu_b=None, logvar_b=None,
-                      keep_inds=None, similarity=None):
+                      keep_inds=None, similarity=None, proj_z=None, use_views=False):
         '''Calculate and return various losses that could be used for training and/or evaluating the model.
 
         INPUT:  - [x]           <4D-tensor> original image
@@ -737,9 +799,17 @@ class AutoEncoder(ContinualLearner):
         else:
             distilL = torch.tensor(0., device=self._device())
 
+        if (proj_z is not None) and (use_views):
+            y = torch.argmax(scores, dim=1) if y is None else y
+            contrL = self.calculate_contr_loss(proj_z, y)
+            #contrL = lf.weighted_average(contrL, weights=batch_weights, dim=0)
+
         # Return a tuple of the calculated losses
         if diffL is None:
-            return reconL, variatL, predL, distilL
+            if (not use_views) or (proj_z is None):
+                return reconL, variatL, predL, distilL
+            else:
+                return reconL, variatL, predL, distilL, contrL
         elif diffL_2 is None:
             return reconL, variatL, diffL, predL, distilL
         elif diffL_3 is None:
@@ -781,7 +851,7 @@ class AutoEncoder(ContinualLearner):
 
             # Run forward pass of model to get [z_mean]
             with torch.no_grad():
-                z_mean, _, _, _ = self.encode(x)
+                z_mean, _, _, _, _ = self.encode(x)
 
             # Run backward pass of model to reconstruct input
             gate_input = y.expand(x.size(0)) if self.dg_gates else None
@@ -829,7 +899,7 @@ class AutoEncoder(ContinualLearner):
 
             # Run forward pass of model to get [z_mu] and [z_logvar]
             with torch.no_grad():
-                z_mu, z_logvar, _, _ = self.encode(x)
+                z_mu, z_logvar, _, _, _ = self.encode(x)
 
             # Importance samples will be calcualted in batches, get number of required batches
             repeats = int(np.ceil(S / batch_size))
@@ -876,7 +946,8 @@ class AutoEncoder(ContinualLearner):
     ##------ TRAINING FUNCTIONS --------##
 
     def train_a_batch(self, x, y=None, x_=None, y_=None, scores_=None, top_scores_=None, batch_index=None, tasks_=None, rnt=0.5,
-                      active_classes=None, task=1, replay_not_hidden=False, freeze_convE=False, batch_size_replay=None, task_n=None, **kwargs):
+                      active_classes=None, task=1, replay_not_hidden=False, freeze_convE=False, batch_size=None, 
+                      batch_size_replay=None, task_n=None, use_views=False, **kwargs):
         '''Train model for one batch ([x],[y]), possibly supplemented with replayed data ([x_],[y_]).
 
         [x]                 <tensor> batch of inputs (could be None, in which case only 'replayed' data is used)
@@ -891,16 +962,21 @@ class AutoEncoder(ContinualLearner):
         [task]              <int>, for setting task-specific mask
         [replay_not_hidden] <bool> provided [x_] are original images, even though other level might be expected'''
 
+        if use_views:
+            x = torch.cat([x[0], x[1]], dim=0) if x is not None else None
+            x_ = torch.cat([x_[0], x_[1]], dim=0) if x_ is not None else None
 
         # Set model to training-mode
         self.train()
-        if freeze_convE:
+        if (freeze_convE) and (not use_views):
             # - if conv-layers are frozen, they shoud be set to eval() to prevent batch-norm layers from changing
             self.convE.eval()
 
         # Reset optimizer
         self.optimizer.zero_grad()
 
+        #### Reset encoder optimizer...
+        self.E_optimizer.zero_grad()
 
         ##--(1)-- CURRENT DATA --##
         precision = 0.
@@ -916,10 +992,15 @@ class AutoEncoder(ContinualLearner):
 
             # Run the model
             x = self.convE(x) if self.hidden else x   # -pre-processing (if 'hidden')
-            recon_batch, y_hat, mu, logvar, z = self(
+            recon_batch, y_hat, mu, logvar, z, proj_z = self(
                 x, gate_input=(task_tensor if self.dg_type=="task" else y) if self.dg_gates else None, full=True,
-                reparameterize=True
-            )
+                reparameterize=True, use_views=use_views, batch_size=batch_size
+                )
+            if use_views:
+                proj_z1, proj_z2 = torch.split(proj_z, [batch_size, batch_size], dim=0)
+                proj_z = torch.cat([proj_z1.unsqueeze(1), proj_z2.unsqueeze(1)], dim=1)
+                x = x[:batch_size]
+
             # -if needed ("class"/"task"-scenario), find allowed classes for current task & remove predictions of others
             if active_classes is not None:
                 class_entries = active_classes[-1] if type(active_classes[0])==list else active_classes
@@ -927,14 +1008,18 @@ class AutoEncoder(ContinualLearner):
                     y_hat = y_hat[:, class_entries]
 
             # Calculate all losses ###
-            reconL, variatL, predL, _ = self.loss_function(
-                x=x, y=y, x_recon=recon_batch, y_hat=y_hat, scores=None, mu=mu, z=z, logvar=logvar,
-                allowed_classes=class_entries if active_classes is not None else None
-            ) #--> [allowed_classes] will be used only if [y] is not provided
+            if not use_views:
+                reconL, variatL, predL, _ = self.loss_function(
+                    x=x, y=y, x_recon=recon_batch, y_hat=y_hat, scores=None, mu=mu, z=z, logvar=logvar,
+                    allowed_classes=class_entries if active_classes is not None else None, use_views=use_views)
+                #--> [allowed_classes] will be used only if [y] is not provided
+            else:
+                reconL, variatL, predL, _, contrL = self.loss_function(
+                    x=x, y=y, x_recon=recon_batch, y_hat=y_hat, scores=None, mu=mu, z=z, logvar=logvar,
+                    allowed_classes=class_entries if active_classes is not None else None, proj_z=proj_z, use_views=use_views)
 
             # Weigh losses as requested
             loss_cur = self.lamda_rcl*reconL + self.lamda_vl*variatL + self.lamda_pl*predL
-            ### loss_cur = self.lamda_rcl*reconL + self.lamda_vl*variatL + self.lamda_df*diffL + self.lamda_pl*predL
 
             # Calculate training-precision
             if y is not None and y_hat is not None:
@@ -944,6 +1029,14 @@ class AutoEncoder(ContinualLearner):
             # If XdG is combined with replay, backward-pass needs to be done before new task-mask is applied
             if (self.mask_dict is not None) and (x_ is not None):
                 weighted_current_loss = rnt*loss_cur
+                #### Before optimisation step, set requires_grad = False for encoder &
+                #### projection head...
+                for param in self.parameters():
+                    param.requires_grad = True
+                for param in chain(self.convE.parameters(), self.fcProj.parameters()):
+                    param.requires_grad = False
+
+                # Update gradients...
                 weighted_current_loss.backward()
 
 
@@ -965,6 +1058,7 @@ class AutoEncoder(ContinualLearner):
             variatL_r = [torch.tensor(0., device=self._device())]*n_replays
             predL_r = [torch.tensor(0., device=self._device())]*n_replays
             distilL_r = [torch.tensor(0., device=self._device())]*n_replays
+            contrL_r = [torch.tensor(0., device=self._device())]*n_replays
             diffL_r = [torch.tensor(0., device=self._device())]*n_replays
             diffL_2_r = [torch.tensor(0., device=self._device())]*n_replays
             diffL_3_r = [torch.tensor(0., device=self._device())]*n_replays
@@ -984,19 +1078,26 @@ class AutoEncoder(ContinualLearner):
                             zeros_to_add = torch.zeros(n_batch, self.classes - y_predicted.size(1))
                             zeros_to_add = zeros_to_add.to(self._device())
                             y_predicted = torch.cat([y_predicted, zeros_to_add], dim=1)
+
                 # -pre-processing (if 'hidden' and [replay_not_hidden] is provided as True)
                 x_temp_ = self.convE(x_) if self.hidden and replay_not_hidden else x_
                 # -run full model
                 gate_input = (tasks_ if self.dg_type=="task" else y_predicted) if self.dg_gates else None
-                recon_batch, y_hat_all, mu, logvar, z = self(x_temp_, gate_input=gate_input, full=True)
+                recon_batch, y_hat_all, mu, logvar, z, proj_z = self(x_temp_, gate_input=gate_input, full=True, use_views=use_views, batch_size=batch_size_replay)
                 
+                if use_views:
+                    proj_z1, proj_z2 = torch.split(proj_z, [batch_size_replay, batch_size_replay], dim=0)
+                    proj_z = torch.cat([proj_z1.unsqueeze(1), proj_z2.unsqueeze(1)], dim=1)
+                    x_temp_, x_ = x_temp_[:batch_size_replay], x_[:batch_size_replay]
+
                 ####
-                
+
                 if top_scores_ is not None:
                     diff = True
                     mu_diff = None
                     logvar_diff = None
                     rep2, averaged = True, False
+                    img_exag = True
 
                     #specific_classes = top_scores_.to('cpu').numpy()
                     #act_sc_size = specific_classes.shape
@@ -1045,8 +1146,9 @@ class AutoEncoder(ContinualLearner):
                         y_probs = torch.gather(y_probabilities, 1, sc_0)[:, 0]
                         sc_1 = torch.reshape(specific_classes_1, (-1,1)).expand(-1, sc_size[0])
                         y_probs_1 = torch.gather(y_probabilities, 1, sc_1)[:, 0]
-                        similarity = (y_probs_1 + 1e-3) / y_probs
-                    
+                        similarity = (y_probs_1 + 1e-3) / (y_probs + 1e-3)
+                        similarity.detach()
+
                     if (samples_to_use is None) or (samples_to_use.nelement() > 0):
                         if samples_to_use is not None:
                             mu_diff = mu[samples_to_use]
@@ -1078,7 +1180,14 @@ class AutoEncoder(ContinualLearner):
                     uniq_sc_0 = torch.unique(specific_classes_0)
                     inds_sc_0 = []
                     
-
+                    #### Image exaggeration
+                    if img_exag and (uniq_sc_0.nelement() > 0):
+                        mean_x_ = []
+                        for i, uniq_c in enumerate(uniq_sc_0):
+                            inds = torch.where(specific_classes_0==uniq_sc_0[i])[0]
+                            mean_x_.append(torch.mean(x_temp_[inds], dim=0))
+                        orig_shape = tuple(mean_x_[0].shape)
+                            
                     if rep2 and ((samples_to_use is None) or (samples_to_use.nelement() > 0)):
                         #uniq_size = uniq_sc_0.nelement()
                         mean_mu_0 = []
@@ -1145,8 +1254,6 @@ class AutoEncoder(ContinualLearner):
                                 diff = False
     
                             ## ?? full_inds_1 = inds_sc_0[specific_classes_1]
-                            if (batch_index is not None) and (batch_index==1):
-                                print(' ', len(keep_inds))
 
             # Loop to perform each replay
             for replay_id in range(n_replays):
@@ -1178,7 +1285,7 @@ class AutoEncoder(ContinualLearner):
                     x_temp_ = self.convE(x_temp_) if self.hidden and replay_not_hidden else x_temp_
                     # -run full model
                     gate_input = (tasks_[replay_id] if self.dg_type=="task" else y_predicted) if self.dg_gates else None
-                    recon_batch, y_hat_all, mu, logvar, z = self(x_temp_, full=True, gate_input=gate_input)
+                    recon_batch, y_hat_all, mu, logvar, z, proj_z = self(x_temp_, full=True, gate_input=gate_input)
 
 
                 # -if needed (e.g., "class" or "task" scenario), remove predictions for classes not in replayed task
@@ -1188,18 +1295,23 @@ class AutoEncoder(ContinualLearner):
 
 ####
                 #if (batch_index is not None and batch_index==1):
-                #    print(self.z_class_means[:,0])
-                #    print('-----')
-                #    print(self.z_class_logvars[:,0])
+                #    print('      ', hasattr(self, "classifier"))
 ####
 
                 # Calculate all losses
                 if (not self.repulsion) or (not diff):
-                    reconL_r[replay_id],variatL_r[replay_id],predL_r[replay_id],distilL_r[replay_id] = self.loss_function(
-                        x=x_temp_, y=y_[replay_id] if (y_ is not None) else None, x_recon=recon_batch, y_hat=y_hat,
-                        scores=scores_[replay_id] if (scores_ is not None) else None, mu=mu, z=z, logvar=logvar,
-                        allowed_classes=active_classes[replay_id] if active_classes is not None else None,
-                    )
+                    if use_views:
+                        reconL_r[replay_id],variatL_r[replay_id],predL_r[replay_id],distilL_r[replay_id], contrL_r[replay_id] = self.loss_function(
+                            x=x_temp_, y=y_[replay_id] if (y_ is not None) else None, x_recon=recon_batch, y_hat=y_hat,
+                            scores=scores_[replay_id] if (scores_ is not None) else None, mu=mu, z=z, logvar=logvar,
+                            allowed_classes=active_classes[replay_id] if active_classes is not None else None, proj_z=proj_z, use_views=use_views
+                        )
+                    else:
+                        reconL_r[replay_id],variatL_r[replay_id],predL_r[replay_id],distilL_r[replay_id] = self.loss_function(
+                            x=x_temp_, y=y_[replay_id] if (y_ is not None) else None, x_recon=recon_batch, y_hat=y_hat,
+                            scores=scores_[replay_id] if (scores_ is not None) else None, mu=mu, z=z, logvar=logvar,
+                            allowed_classes=active_classes[replay_id] if active_classes is not None else None, use_views=use_views
+                        )
                 elif mu_3 is None: ####
                     reconL_r[replay_id],variatL_r[replay_id],diffL_r[replay_id],predL_r[replay_id],distilL_r[replay_id] = self.loss_function(
                         x=x_temp_, y=y_[replay_id] if (y_ is not None) else None, x_recon=recon_batch, y_hat=y_hat,
@@ -1249,12 +1361,25 @@ class AutoEncoder(ContinualLearner):
                 # If task-specific mask, backward pass needs to be performed before next task-mask is applied
                 if self.mask_dict is not None:
                     weighted_replay_loss_this_task = (1-rnt) * loss_replay[replay_id] / n_replays
+                    #### Before optimisation step, set requires_grad = False for encoder &
+                    #### projection head...
+
+                    for param in self.parameters():
+                        param.requires_grad = True
+                    for param in chain(self.convE.parameters(), self.fcProj.parameters()):
+                        param.requires_grad = False
+
+                    # Update gradients...
                     weighted_replay_loss_this_task.backward()
         
         # Calculate total loss
         loss_replay = None if (x_ is None) else sum(loss_replay)/n_replays
         loss_total = loss_replay if (x is None) else (loss_cur if x_ is None else rnt*loss_cur+(1-rnt)*loss_replay)
-        
+
+        #### Calculate total contrastive loss...
+        if use_views:
+            loss_replay_contr = None if (x_ is None) else sum(contrL_r)/n_replays
+            loss_total_contr = loss_replay_contr if (x is None) else (contrL if x_ is None else rnt*contrL+(1-rnt)*loss_replay_contr)
 
         ##--(3)-- ALLOCATION LOSSES --##
 
@@ -1271,19 +1396,36 @@ class AutoEncoder(ContinualLearner):
 
         # Backpropagate errors (if not yet done)
         if (self.mask_dict is None) or (x_ is None):
-            loss_total.backward()
-        '''
-        if (batch_index is not None) and (batch_index==1):
-            grads = []
-            for num, param in enumerate(self.parameters(), 1):
-                grads.append(param.grad.view(-1))
-            print(len(grads))
-            print(grads[0].size())
-            print(grads[1].size())
-        '''
+            #### Before optimisation step, set requires_grad = False for encoder &
+            #### projection head...
+            for param in self.parameters():
+                param.requires_grad = True
+            for param in chain(self.convE.parameters(), self.fcProj.parameters()):
+                param.requires_grad = False
+
+            # Update gradients...
+            loss_total.backward(retain_graph=True)
+
         # Take optimization-step
         self.optimizer.step()
-
+        
+        #### Before encoder optimisation step, set requires_grad = True for encoder &
+        #### encoder & projection head, and requires_grad = False for
+        #### everything else...
+        if use_views:
+            for param in self.parameters():
+                param.requires_grad = False
+            for param in chain(self.convE.parameters(), self.fcProj.parameters()):
+                param.requires_grad = True
+    
+            #### Update encoder gradients...
+            loss_total_contr.backward()
+            
+            #### Take encoder optimization-step...
+            self.E_optimizer.step()
+        
+        for param in self.parameters():
+            param.requires_grad = True
 
         # Return the dictionary with different training-loss split in categories ###
         return {
@@ -1291,6 +1433,7 @@ class AutoEncoder(ContinualLearner):
             'recon': reconL.item() if x is not None else 0,
             'variat': variatL.item() if x is not None else 0,
             'pred': predL.item() if x is not None else 0,
+            'contr': contrL.item() if (x is not None) and (use_views) else 0,
             'recon_r': sum(reconL_r).item()/n_replays if x_ is not None else 0,
             'variat_r': sum(variatL_r).item()/n_replays if x_ is not None else 0,
             'diff_r': sum(diffL_r).item()/n_replays if (x_ is not None) and (self.repulsion) and diff else 0,
@@ -1298,5 +1441,6 @@ class AutoEncoder(ContinualLearner):
             'diff_3_r': sum(diffL_3_r).item()/n_replays if (x_ is not None) and (self.repulsion) and diff  and (mu_4 is not None) else 0,
             'pred_r': sum(predL_r).item()/n_replays if x_ is not None else 0,
             'distil_r': sum(distilL_r).item()/n_replays if x_ is not None else 0,
+            'contr_r': sum(contrL_r).item()/n_replays if (x_ is not None) and (use_views) else 0,
             'ewc': ewc_loss.item(), 'si_loss': surrogate_loss.item(),
         }

@@ -947,7 +947,8 @@ class AutoEncoder(ContinualLearner):
 
     def train_a_batch(self, x, y=None, x_=None, y_=None, scores_=None, top_scores_=None, batch_index=None, tasks_=None, rnt=0.5,
                       active_classes=None, task=1, replay_not_hidden=False, freeze_convE=False, batch_size=None, 
-                      batch_size_replay=None, task_n=None, use_views=False, contrast_current=False, **kwargs):
+                      batch_size_replay=None, task_n=None, use_views=False, 
+                      contrast_current=False, match_cur_replay_aug=False, **kwargs):
         '''Train model for one batch ([x],[y]), possibly supplemented with replayed data ([x_],[y_]).
 
         [x]                 <tensor> batch of inputs (could be None, in which case only 'replayed' data is used)
@@ -964,7 +965,7 @@ class AutoEncoder(ContinualLearner):
         
         if use_views:
             x_ = torch.cat([x_[0], x_[1]], dim=0) if x_ is not None else None
-            if contrast_current:
+            if contrast_current and (not match_cur_replay_aug):
                 x = torch.cat([x[0], x[1]], dim=0) if x is not None else None
 
         # Set model to training-mode

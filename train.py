@@ -88,6 +88,7 @@ def train_cl(model, train_datasets, replay_mode="none", scenario="task", rnt=Non
     #### Should augmented views be created?...
     use_views = True
     contrast_current = False
+    match_cur_replay_aug = False
 
     # Should convolutional layers be frozen?
     freeze_convE = (utils.checkattr(args, "freeze_convE") and hasattr(args, "depth") and args.depth>0)
@@ -192,7 +193,7 @@ def train_cl(model, train_datasets, replay_mode="none", scenario="task", rnt=Non
                 y = y-classes_per_task*(task-1) if scenario=="task" else y  #--> ITL: adjust y-targets to 'active range'
                 x, y = x.to(device), y.to(device)                           #--> transfer them to correct device
                 #### Create two views by augmenting data...
-                if use_views and contrast_current:
+                if use_views and contrast_current and (not match_cur_replay_aug):
                     # Return two views...
                     x = [x, transform(x)]
                 #y = y.expand(1) if len(y.size())==1 else y                 #--> hack for if batch-size is 1
@@ -331,7 +332,8 @@ def train_cl(model, train_datasets, replay_mode="none", scenario="task", rnt=Non
                                                     1. if task==1 else 1./task
                                                 ) if rnt is None else rnt, freeze_convE=freeze_convE,
                                                 replay_not_hidden=False if Generative else True, batch_size=batch_size, 
-                                                batch_size_replay=batch_size_replay, task_n=task, use_views=use_views, contrast_current=contrast_current)
+                                                batch_size_replay=batch_size_replay, task_n=task, use_views=use_views, 
+                                                contrast_current=contrast_current)#, match_cur_replay_aug=match_cur_replay_aug)
 
                 # Update running parameter importance estimates in W
                 if isinstance(model, ContinualLearner) and model.si_c>0:

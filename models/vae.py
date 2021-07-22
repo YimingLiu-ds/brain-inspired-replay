@@ -118,7 +118,7 @@ class AutoEncoder(ContinualLearner):
         self.fcE = MLP(size_per_layer=self.fc_layer_sizes, drop=fc_drop, batch_norm=fc_bn, nl=fc_nl,
                        excit_buffer=excit_buffer, gated=fc_gated)
         ###### Can add extra layers here ######
-        self.fcProj = MLP(size_per_layer=[1024,2048,128], batch_norm=False, nl='relu', output='none') #, final_norm=True)
+        self.fcProj = MLP(size_per_layer=[1024,2048,2048,128], batch_norm=False, nl='relu', output='none') #, final_norm=True)
 
         # to z
         self.toZ = fc_layer_split(real_h_dim, z_dim, nl_mean='none', nl_logvar='none')#, drop=fc_drop)

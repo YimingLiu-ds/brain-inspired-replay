@@ -86,7 +86,7 @@ def train_cl(model, train_datasets, replay_mode="none", scenario="task", rnt=Non
     [*_cbs]             <list> of call-back functions to evaluate training-progress'''
     
     #### Should augmented views be created?...
-    use_views = True
+    use_views = False
     contrast_current = False
     match_cur_replay_aug = False
 

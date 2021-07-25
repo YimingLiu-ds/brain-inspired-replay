@@ -635,18 +635,23 @@ class AutoEncoder(ContinualLearner):
         diffL = torch.exp(log_q1_z_x) * (log_q1_z_x - log_q2_z_x) + 1e-6
         return torch.pow(diffL, -1)
 
-    def calculate_contr_loss(self, proj_z, y, temp=0.07, base_temp=0.07):
+    def calculate_contr_loss(self, proj_z, y, scores=None, temp=0.07, base_temp=0.07):
         '''Calculate contrastive loss on encoder and projection head.
         
         INPUT:  - [proj_z]     <3D tensor> [batch_size]x[n_views]x[proj_output_size]
 
         OUTPUT: - [contrL]     <1D tensor> of length [batch_size]'''
-
+        
+        use_scores = False
+        #y = scores if use_scores and (scores is not None) else y
+        
         batch_size = proj_z.shape[0]
         y = y.contiguous().view(-1, 1)
+        #y = y.contiguous() if use_scores and (scores is not None) else y.contiguous().view(-1, 1)
         if y.shape[0] != batch_size:
             raise ValueError('Num of labels does not match num of features!!')
 
+        distil_mask = torch.matmul(scores, scores.T).to(self._device()) if use_scores and (scores is not None) else None
         mask = torch.eq(y, y.T).float().to(self._device())
 
         contr_count = proj_z.shape[1]
@@ -663,20 +668,22 @@ class AutoEncoder(ContinualLearner):
 
         # Tile mask
         mask = mask.repeat(anchor_count, contr_count)
+        distil_mask = 1 / (distil_mask.repeat(anchor_count, contr_count) + 1e-5) if distil_mask is not None else None
 
         # Mask-out self-contrast cases
         logits_mask = torch.scatter(torch.ones_like(mask), 1,
             torch.arange(batch_size * anchor_count).view(-1, 1).to(self._device()), 0)
 
         mask = mask * logits_mask
+        distil_mask = distil_mask * logits_mask if distil_mask is not None else None
 
         # Compute log_prob
         exp_logits = torch.exp(logits) * logits_mask
 
         log_prob = logits - torch.log(exp_logits.sum(1, keepdim=True))
 
-        # Compute mean of log-likelihood over positive
-        mean_log_prob_pos = (mask * log_prob).sum(1) / mask.sum(1)  ## log(exp/sum(exp))/|P(i)|
+        # Compute mean of log-likelihood over positive: log(exp/sum(exp))/|P(i)|
+        mean_log_prob_pos = (mask * log_prob).sum(1) / mask.sum(1) if distil_mask is None else (distil_mask * log_prob).sum(1) / mask.sum(1)
 
         # Contrastive loss...
         contrL = - (temp / base_temp) * mean_log_prob_pos
@@ -805,21 +812,23 @@ class AutoEncoder(ContinualLearner):
 
         if (proj_z is not None) and (use_views):
             y = torch.argmax(scores, dim=1) if y is None else y
-            contrL = self.calculate_contr_loss(proj_z, y)
+            contrL = self.calculate_contr_loss(proj_z, y, scores)
             #contrL = lf.weighted_average(contrL, weights=batch_weights, dim=0)
+        else:
+            contrL = None
 
         # Return a tuple of the calculated losses
         if diffL is None:
             if (not use_views) or (proj_z is None):
-                return reconL, variatL, predL, distilL
+                return reconL, variatL, predL, distilL, contrL
             else:
                 return reconL, variatL, predL, distilL, contrL
         elif diffL_2 is None:
-            return reconL, variatL, diffL, predL, distilL
+            return reconL, variatL, diffL, predL, distilL, contrL
         elif diffL_3 is None:
-            return reconL, variatL, diffL, diffL_2, predL, distilL
+            return reconL, variatL, diffL, diffL_2, predL, distilL, contrL
         else:
-            return reconL, variatL, diffL, diffL_2, diffL_3, predL, distilL
+            return reconL, variatL, diffL, diffL_2, diffL_3, predL, distilL, contrL
 
 
 
@@ -1016,7 +1025,7 @@ class AutoEncoder(ContinualLearner):
 
             # Calculate all losses ###
             if (not use_views) or (not contrast_current):
-                reconL, variatL, predL, _ = self.loss_function(
+                reconL, variatL, predL, _, _ = self.loss_function(
                     x=x, y=y, x_recon=recon_batch, y_hat=y_hat, scores=None, mu=mu, z=z, logvar=logvar,
                     allowed_classes=class_entries if active_classes is not None else None, use_views=use_views)
                 #--> [allowed_classes] will be used only if [y] is not provided
@@ -1319,34 +1328,35 @@ class AutoEncoder(ContinualLearner):
                             allowed_classes=active_classes[replay_id] if active_classes is not None else None, proj_z=proj_z, use_views=use_views
                         )
                     else:
-                        reconL_r[replay_id],variatL_r[replay_id],predL_r[replay_id],distilL_r[replay_id] = self.loss_function(
+                        reconL_r[replay_id],variatL_r[replay_id],predL_r[replay_id],distilL_r[replay_id], contrL_r[replay_id] = self.loss_function(
                             x=x_temp_, y=y_[replay_id] if (y_ is not None) else None, x_recon=recon_batch, y_hat=y_hat,
                             scores=scores_[replay_id] if (scores_ is not None) else None, mu=mu, z=z, logvar=logvar,
-                            allowed_classes=active_classes[replay_id] if active_classes is not None else None, use_views=use_views
+                            allowed_classes=active_classes[replay_id] if active_classes is not None else None, proj_z=proj_z, use_views=use_views
                         )
                 elif mu_3 is None: ####
-                    reconL_r[replay_id],variatL_r[replay_id],diffL_r[replay_id],predL_r[replay_id],distilL_r[replay_id] = self.loss_function(
+                    reconL_r[replay_id],variatL_r[replay_id],diffL_r[replay_id],predL_r[replay_id],distilL_r[replay_id],contrL_r[replay_id] = self.loss_function(
                         x=x_temp_, y=y_[replay_id] if (y_ is not None) else None, x_recon=recon_batch, y_hat=y_hat,
                         scores=scores_[replay_id] if (scores_ is not None) else None, mu=mu, z=z, logvar=logvar,
                         allowed_classes=active_classes[replay_id] if active_classes is not None else None,
                         diff=diff, mu_diff=mu_diff, logvar_diff=logvar_diff, mu_2=mu_2, logvar_2=logvar_2, kl_js=self.kl_js,
-                        mu_b=mu_b, logvar_b=logvar_b, keep_inds=keep_inds, similarity=similarity)
+                        mu_b=mu_b, logvar_b=logvar_b, keep_inds=keep_inds, similarity=similarity, proj_z=proj_z, use_views=use_views)
 
                 elif mu_4 is None:
-                    reconL_r[replay_id],variatL_r[replay_id],diffL_r[replay_id],diffL_2_r[replay_id],predL_r[replay_id],distilL_r[replay_id] = self.loss_function(
+                    reconL_r[replay_id],variatL_r[replay_id],diffL_r[replay_id],diffL_2_r[replay_id],predL_r[replay_id],distilL_r[replay_id],contrL_r[replay_id] = self.loss_function(
                         x=x_temp_, y=y_[replay_id] if (y_ is not None) else None, x_recon=recon_batch, y_hat=y_hat,
                         scores=scores_[replay_id] if (scores_ is not None) else None, mu=mu, z=z, logvar=logvar,
                         allowed_classes=active_classes[replay_id] if active_classes is not None else None,
                         diff=diff, mu_diff=mu_diff, logvar_diff=logvar_diff, mu_2=mu_2, logvar_2=logvar_2, 
-                        mu_3=mu_3, logvar_3=logvar_3, kl_js=self.kl_js, use_rep_factor=self.use_rep_factor,
+                        mu_3=mu_3, logvar_3=logvar_3, kl_js=self.kl_js, use_rep_factor=self.use_rep_factor, proj_z=proj_z, use_views=use_views
                     )
                 else:
-                    reconL_r[replay_id],variatL_r[replay_id],diffL_r[replay_id],diffL_2_r[replay_id],diffL_3_r[replay_id],predL_r[replay_id],distilL_r[replay_id] = self.loss_function(
+                    reconL_r[replay_id],variatL_r[replay_id],diffL_r[replay_id],diffL_2_r[replay_id],diffL_3_r[replay_id],predL_r[replay_id],distilL_r[replay_id],contrL_r[replay_id] = self.loss_function(
                         x=x_temp_, y=y_[replay_id] if (y_ is not None) else None, x_recon=recon_batch, y_hat=y_hat,
                         scores=scores_[replay_id] if (scores_ is not None) else None, mu=mu, z=z, logvar=logvar,
                         allowed_classes=active_classes[replay_id] if active_classes is not None else None,
                         diff=diff, mu_diff=mu_diff, logvar_diff=logvar_diff, mu_2=mu_2, logvar_2=logvar_2, 
                         mu_3=mu_3, logvar_3=logvar_3, mu_4=mu_4, logvar_4=logvar_4, kl_js=self.kl_js, use_rep_factor=self.use_rep_factor,
+                        proj_z=proj_z, use_views=use_views
                     ) ####
 
 

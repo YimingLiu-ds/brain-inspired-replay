@@ -116,8 +116,10 @@ def run(args, verbose=False):
         for param in model.convD.parameters():
             param.requires_grad = False
     ####
-    for param in model.fcProj.parameters():
-        param.requires_grad = False
+    use_views = args.contrastive
+    if use_views:
+        for param in model.fcProj.parameters():
+            param.requires_grad = False
     ####
 
     # Define optimizer (only optimize parameters that "requires_grad")
@@ -127,14 +129,15 @@ def run(args, verbose=False):
     model.optimizer = optim.Adam(model.optim_list, betas=(0.9, 0.999))
 
     #### Define encoder optimizer (only optimize the encoder & MLP parameters)...
-    if utils.checkattr(args, "freeze_convE"):
-        for param in chain(model.convE.parameters(), model.fcProj.parameters()):
-            param.requires_grad = True
-
-    model.E_optim_list = [
-        {'params': chain(model.convE.parameters(), model.fcProj.parameters()), 'lr': args.lr},
-    ]
-    model.E_optimizer = optim.Adam(model.E_optim_list, betas=(0.9, 0.999))
+    if use_views:
+        if utils.checkattr(args, "freeze_convE"):
+            for param in chain(model.convE.parameters(), model.fcProj.parameters()):
+                param.requires_grad = True
+    
+        model.E_optim_list = [
+            {'params': chain(model.convE.parameters(), model.fcProj.parameters()), 'lr': args.lr},
+        ]
+        model.E_optimizer = optim.Adam(model.E_optim_list, betas=(0.9, 0.999))
 
 
     #-------------------------------------------------------------------------------------------------#

@@ -35,7 +35,8 @@ class AutoEncoder(ContinualLearner):
                  # -training-specific settings (can be changed after setting up model)
                  lamda_pl=0., lamda_rcl=1., lamda_vl=1., lamda_rep=1., 
                  #### Determine whether or not to implement class repulsion...
-                 repulsion=False, kl_js='js', use_rep_factor=False, rep_factor=1.5, apply_mask=False, **kwargs):
+                 repulsion=False, kl_js='js', use_rep_factor=False, rep_factor=1.5, apply_mask=False,
+                 contrastive=False, **kwargs):
 
         # Set configurations for setting up the model
         super().__init__()
@@ -87,6 +88,7 @@ class AutoEncoder(ContinualLearner):
         self.lamda_vl = lamda_vl       # weight of variational loss
         ####
         self.lamda_rep = lamda_rep       # weight of difference loss
+        self.contrastive = contrastive
         ####
 
         # Check whether there is at least 1 fc-layer
@@ -118,7 +120,8 @@ class AutoEncoder(ContinualLearner):
         self.fcE = MLP(size_per_layer=self.fc_layer_sizes, drop=fc_drop, batch_norm=fc_bn, nl=fc_nl,
                        excit_buffer=excit_buffer, gated=fc_gated)
         ###### Can add extra layers here ######
-        self.fcProj = MLP(size_per_layer=[1024,2048,128], batch_norm=False, nl='relu', output='none') #, final_norm=True)
+        if self.contrastive:
+            self.fcProj = MLP(size_per_layer=[1024,2048,128], batch_norm=False, nl='relu', output='none') #, final_norm=True)
 
         # to z
         self.toZ = fc_layer_split(real_h_dim, z_dim, nl_mean='none', nl_logvar='none')#, drop=fc_drop)
@@ -243,10 +246,11 @@ class AutoEncoder(ContinualLearner):
         # Forward-pass through fc-layers
         hE = self.fcE(image_features[:batch_size]) if use_views else self.fcE(image_features)
         ###### Can add extra dense layers here (contrastive learning) ######
-        proj_z = F.normalize(self.fcProj(image_features), dim=1)
+        if use_views:
+            proj_z = F.normalize(self.fcProj(image_features), dim=1)
         # Get parameters for reparametrization
         (z_mean, z_logvar) = self.toZ(hE)
-        return z_mean, z_logvar, hE, hidden_x, proj_z
+        return z_mean, z_logvar, hE, hidden_x, proj_z if use_views else None
 
     def classify(self, x, not_hidden=False, reparameterize=True, **kwargs):
         '''For input [x] (image or extracted "internal" image features), return all predicted "scores"/"logits".'''
@@ -978,7 +982,8 @@ class AutoEncoder(ContinualLearner):
         self.optimizer.zero_grad()
 
         #### Reset encoder optimizer...
-        self.E_optimizer.zero_grad()
+        if use_views:
+            self.E_optimizer.zero_grad()
 
         ##--(1)-- CURRENT DATA --##
         precision = 0.
@@ -1033,10 +1038,11 @@ class AutoEncoder(ContinualLearner):
                 weighted_current_loss = rnt*loss_cur
                 #### Before optimisation step, set requires_grad = False for encoder &
                 #### projection head...
-                for param in self.parameters():
-                    param.requires_grad = True
-                for param in chain(self.convE.parameters(), self.fcProj.parameters()):
-                    param.requires_grad = False
+                if use_views:
+                    for param in self.parameters():
+                        param.requires_grad = True
+                    for param in chain(self.convE.parameters(), self.fcProj.parameters()):
+                        param.requires_grad = False
 
                 # Update gradients...
                 weighted_current_loss.backward()
@@ -1369,11 +1375,11 @@ class AutoEncoder(ContinualLearner):
                     weighted_replay_loss_this_task = (1-rnt) * loss_replay[replay_id] / n_replays
                     #### Before optimisation step, set requires_grad = False for encoder &
                     #### projection head...
-
-                    for param in self.parameters():
-                        param.requires_grad = True
-                    for param in chain(self.convE.parameters(), self.fcProj.parameters()):
-                        param.requires_grad = False
+                    if use_views:
+                        for param in self.parameters():
+                            param.requires_grad = True
+                        for param in chain(self.convE.parameters(), self.fcProj.parameters()):
+                            param.requires_grad = False
 
                     # Update gradients...
                     weighted_replay_loss_this_task.backward()
@@ -1407,10 +1413,11 @@ class AutoEncoder(ContinualLearner):
         if (self.mask_dict is None) or (x_ is None):
             #### Before optimisation step, set requires_grad = False for encoder &
             #### projection head...
-            for param in self.parameters():
-                param.requires_grad = True
-            for param in chain(self.convE.parameters(), self.fcProj.parameters()):
-                param.requires_grad = False
+            if use_views:
+                for param in self.parameters():
+                    param.requires_grad = True
+                for param in chain(self.convE.parameters(), self.fcProj.parameters()):
+                    param.requires_grad = False
 
             # Update gradients...
             loss_total.backward(retain_graph=True)
@@ -1432,9 +1439,10 @@ class AutoEncoder(ContinualLearner):
             
             #### Take encoder optimization-step...
             self.E_optimizer.step()
-        
-        for param in self.parameters():
-            param.requires_grad = True
+
+        if use_views and (loss_total_contr is None):
+            for param in self.parameters():
+                param.requires_grad = True
 
         # Return the dictionary with different training-loss split in categories ###
         return {

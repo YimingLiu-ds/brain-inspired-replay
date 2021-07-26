@@ -244,13 +244,13 @@ class AutoEncoder(ContinualLearner):
         hidden_x = x if (self.hidden and not not_hidden) else self.convE(x)
         image_features = self.flatten(hidden_x)
         # Forward-pass through fc-layers
-        hE = self.fcE(image_features[:batch_size]) if use_views else self.fcE(image_features)
+        hE = self.fcE(image_features[:batch_size]) if self.contrastive else self.fcE(image_features)
         ###### Can add extra dense layers here (contrastive learning) ######
-        if use_views:
+        if self.contrastive:
             proj_z = F.normalize(self.fcProj(image_features), dim=1)
         # Get parameters for reparametrization
         (z_mean, z_logvar) = self.toZ(hE)
-        return z_mean, z_logvar, hE, hidden_x, proj_z if use_views else None
+        return z_mean, z_logvar, hE, hidden_x, proj_z if self.contrastive else None
 
     def classify(self, x, not_hidden=False, reparameterize=True, **kwargs):
         '''For input [x] (image or extracted "internal" image features), return all predicted "scores"/"logits".'''
@@ -651,7 +651,7 @@ class AutoEncoder(ContinualLearner):
         if y.shape[0] != batch_size:
             raise ValueError('Num of labels does not match num of features!!')
 
-        distil_mask = torch.matmul(scores, scores.T).to(self._device()) if use_scores and (scores is not None) else None
+        #distil_mask = torch.matmul(scores, scores.T).to(self._device()) if use_scores and (scores is not None) else None
         mask = torch.eq(y, y.T).float().to(self._device())
 
         contr_count = proj_z.shape[1]
@@ -668,14 +668,14 @@ class AutoEncoder(ContinualLearner):
 
         # Tile mask
         mask = mask.repeat(anchor_count, contr_count)
-        distil_mask = 1 / (distil_mask.repeat(anchor_count, contr_count) + 1e-5) if distil_mask is not None else None
+        #distil_mask = 1 / (distil_mask.repeat(anchor_count, contr_count) + 1e-5) if distil_mask is not None else None
 
         # Mask-out self-contrast cases
         logits_mask = torch.scatter(torch.ones_like(mask), 1,
             torch.arange(batch_size * anchor_count).view(-1, 1).to(self._device()), 0)
 
         mask = mask * logits_mask
-        distil_mask = distil_mask * logits_mask if distil_mask is not None else None
+        #distil_mask = distil_mask * logits_mask if distil_mask is not None else None
 
         # Compute log_prob
         exp_logits = torch.exp(logits) * logits_mask
@@ -683,7 +683,8 @@ class AutoEncoder(ContinualLearner):
         log_prob = logits - torch.log(exp_logits.sum(1, keepdim=True))
 
         # Compute mean of log-likelihood over positive: log(exp/sum(exp))/|P(i)|
-        mean_log_prob_pos = (mask * log_prob).sum(1) / mask.sum(1) if distil_mask is None else (distil_mask * log_prob).sum(1) / mask.sum(1)
+        mean_log_prob_pos = (mask * log_prob).sum(1) / mask.sum(1)
+        #mean_log_prob_pos = (mask * log_prob).sum(1) / mask.sum(1) if distil_mask is None else (distil_mask * log_prob).sum(1) / mask.sum(1)
 
         # Contrastive loss...
         contrL = - (temp / base_temp) * mean_log_prob_pos
@@ -810,16 +811,17 @@ class AutoEncoder(ContinualLearner):
         else:
             distilL = torch.tensor(0., device=self._device())
 
-        if (proj_z is not None) and (use_views):
+        if (proj_z is not None) and (self.contrastive):
             y = torch.argmax(scores, dim=1) if y is None else y
             contrL = self.calculate_contr_loss(proj_z, y, scores)
+            #print(contrL)
             #contrL = lf.weighted_average(contrL, weights=batch_weights, dim=0)
         else:
             contrL = None
 
         # Return a tuple of the calculated losses
         if diffL is None:
-            if (not use_views) or (proj_z is None):
+            if (not self.contrastive) or (proj_z is None):
                 return reconL, variatL, predL, distilL, contrL
             else:
                 return reconL, variatL, predL, distilL, contrL
@@ -976,14 +978,14 @@ class AutoEncoder(ContinualLearner):
         [task]              <int>, for setting task-specific mask
         [replay_not_hidden] <bool> provided [x_] are original images, even though other level might be expected'''
         
-        if use_views:
+        if self.contrastive:
             x_ = torch.cat([x_[0], x_[1]], dim=0) if x_ is not None else None
             if contrast_current and (not match_cur_replay_aug):
                 x = torch.cat([x[0], x[1]], dim=0) if x is not None else None
 
         # Set model to training-mode
         self.train()
-        if (freeze_convE) and ((not use_views) or (not contrast_current)):
+        if (freeze_convE) and ((not self.contrastive) or (not contrast_current)):
             # - if conv-layers are frozen, they shoud be set to eval() to prevent batch-norm layers from changing
             self.convE.eval()
 
@@ -991,7 +993,7 @@ class AutoEncoder(ContinualLearner):
         self.optimizer.zero_grad()
 
         #### Reset encoder optimizer...
-        if use_views:
+        if self.contrastive:
             self.E_optimizer.zero_grad()
 
         ##--(1)-- CURRENT DATA --##
@@ -1012,7 +1014,7 @@ class AutoEncoder(ContinualLearner):
                 x, gate_input=(task_tensor if self.dg_type=="task" else y) if self.dg_gates else None, full=True,
                 reparameterize=True, use_views=use_views, batch_size=batch_size
                 )
-            if use_views and contrast_current:
+            if self.contrastive and contrast_current:
                 proj_z1, proj_z2 = torch.split(proj_z, [batch_size, batch_size], dim=0)
                 proj_z = torch.cat([proj_z1.unsqueeze(1), proj_z2.unsqueeze(1)], dim=1)
                 x = x[:batch_size]
@@ -1024,7 +1026,7 @@ class AutoEncoder(ContinualLearner):
                     y_hat = y_hat[:, class_entries]
 
             # Calculate all losses ###
-            if (not use_views) or (not contrast_current):
+            if (not self.contrastive) or (not contrast_current):
                 reconL, variatL, predL, _, _ = self.loss_function(
                     x=x, y=y, x_recon=recon_batch, y_hat=y_hat, scores=None, mu=mu, z=z, logvar=logvar,
                     allowed_classes=class_entries if active_classes is not None else None, use_views=use_views)
@@ -1047,7 +1049,7 @@ class AutoEncoder(ContinualLearner):
                 weighted_current_loss = rnt*loss_cur
                 #### Before optimisation step, set requires_grad = False for encoder &
                 #### projection head...
-                if use_views:
+                if self.contrastive:
                     for param in self.parameters():
                         param.requires_grad = True
                     for param in chain(self.convE.parameters(), self.fcProj.parameters()):
@@ -1059,7 +1061,7 @@ class AutoEncoder(ContinualLearner):
 
         ##--(2)-- REPLAYED DATA --##
         # Set convE to training-mode if contrastive...
-        if use_views and (not contrast_current):
+        if self.contrastive and (not contrast_current):
             self.convE.train()
         
         mu_2, logvar_2, mu_3, mu_4 = None, None, None, None
@@ -1106,7 +1108,7 @@ class AutoEncoder(ContinualLearner):
                 gate_input = (tasks_ if self.dg_type=="task" else y_predicted) if self.dg_gates else None
                 recon_batch, y_hat_all, mu, logvar, z, proj_z = self(x_temp_, gate_input=gate_input, full=True, use_views=use_views, batch_size=batch_size_replay)
                 
-                if use_views:
+                if self.contrastive:
                     proj_z1, proj_z2 = torch.split(proj_z, [batch_size_replay, batch_size_replay], dim=0)
                     proj_z = torch.cat([proj_z1.unsqueeze(1), proj_z2.unsqueeze(1)], dim=1)
                     x_temp_, x_ = x_temp_[:batch_size_replay], x_[:batch_size_replay]
@@ -1321,7 +1323,7 @@ class AutoEncoder(ContinualLearner):
 
                 # Calculate all losses
                 if (not self.repulsion) or (not diff):
-                    if use_views:
+                    if self.contrastive:
                         reconL_r[replay_id],variatL_r[replay_id],predL_r[replay_id],distilL_r[replay_id], contrL_r[replay_id] = self.loss_function(
                             x=x_temp_, y=y_[replay_id] if (y_ is not None) else None, x_recon=recon_batch, y_hat=y_hat,
                             scores=scores_[replay_id] if (scores_ is not None) else None, mu=mu, z=z, logvar=logvar,
@@ -1385,7 +1387,7 @@ class AutoEncoder(ContinualLearner):
                     weighted_replay_loss_this_task = (1-rnt) * loss_replay[replay_id] / n_replays
                     #### Before optimisation step, set requires_grad = False for encoder &
                     #### projection head...
-                    if use_views:
+                    if self.contrastive:
                         for param in self.parameters():
                             param.requires_grad = True
                         for param in chain(self.convE.parameters(), self.fcProj.parameters()):
@@ -1399,7 +1401,7 @@ class AutoEncoder(ContinualLearner):
         loss_total = loss_replay if (x is None) else (loss_cur if x_ is None else rnt*loss_cur+(1-rnt)*loss_replay)
 
         #### Calculate total contrastive loss...
-        if use_views:
+        if self.contrastive:
             loss_replay_contr = None if (x_ is None) else sum(contrL_r)/n_replays
             if contrast_current:
                 loss_total_contr = loss_replay_contr if (x is None) else (contrL if x_ is None else rnt*contrL+(1-rnt)*loss_replay_contr)
@@ -1423,7 +1425,7 @@ class AutoEncoder(ContinualLearner):
         if (self.mask_dict is None) or (x_ is None):
             #### Before optimisation step, set requires_grad = False for encoder &
             #### projection head...
-            if use_views:
+            if self.contrastive:
                 for param in self.parameters():
                     param.requires_grad = True
                 for param in chain(self.convE.parameters(), self.fcProj.parameters()):
@@ -1438,7 +1440,7 @@ class AutoEncoder(ContinualLearner):
         #### Before encoder optimisation step, set requires_grad = True for encoder &
         #### encoder & projection head, and requires_grad = False for
         #### everything else...
-        if use_views and (loss_total_contr is not None):
+        if self.contrastive and (loss_total_contr is not None):
             for param in self.parameters():
                 param.requires_grad = False
             for param in chain(self.convE.parameters(), self.fcProj.parameters()):
@@ -1450,7 +1452,7 @@ class AutoEncoder(ContinualLearner):
             #### Take encoder optimization-step...
             self.E_optimizer.step()
 
-        if use_views and (loss_total_contr is None):
+        if self.contrastive and (loss_total_contr is None):
             for param in self.parameters():
                 param.requires_grad = True
 
@@ -1460,7 +1462,7 @@ class AutoEncoder(ContinualLearner):
             'recon': reconL.item() if x is not None else 0,
             'variat': variatL.item() if x is not None else 0,
             'pred': predL.item() if x is not None else 0,
-            'contr': contrL.item() if (x is not None) and (use_views) and (contrast_current) else 0,
+            'contr': contrL.item() if (x is not None) and (self.contrastive) and (contrast_current) else 0,
             'recon_r': sum(reconL_r).item()/n_replays if x_ is not None else 0,
             'variat_r': sum(variatL_r).item()/n_replays if x_ is not None else 0,
             'diff_r': sum(diffL_r).item()/n_replays if (x_ is not None) and (self.repulsion) and diff else 0,
@@ -1468,6 +1470,6 @@ class AutoEncoder(ContinualLearner):
             'diff_3_r': sum(diffL_3_r).item()/n_replays if (x_ is not None) and (self.repulsion) and diff  and (mu_4 is not None) else 0,
             'pred_r': sum(predL_r).item()/n_replays if x_ is not None else 0,
             'distil_r': sum(distilL_r).item()/n_replays if x_ is not None else 0,
-            'contr_r': sum(contrL_r).item()/n_replays if (x_ is not None) and (use_views) else 0,
+            'contr_r': sum(contrL_r).item()/n_replays if (x_ is not None) and (self.contrastive) else 0,
             'ewc': ewc_loss.item(), 'si_loss': surrogate_loss.item(),
         }

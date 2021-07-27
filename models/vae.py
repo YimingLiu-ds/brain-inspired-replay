@@ -651,7 +651,7 @@ class AutoEncoder(ContinualLearner):
         if y.shape[0] != batch_size:
             raise ValueError('Num of labels does not match num of features!!')
 
-        #distil_mask = torch.matmul(scores, scores.T).to(self._device()) if use_scores and (scores is not None) else None
+        distil_mask = torch.matmul(scores, scores.T).to(self._device()) if use_scores and (scores is not None) else None
         mask = torch.eq(y, y.T).float().to(self._device())
 
         contr_count = proj_z.shape[1]
@@ -668,14 +668,14 @@ class AutoEncoder(ContinualLearner):
 
         # Tile mask
         mask = mask.repeat(anchor_count, contr_count)
-        #distil_mask = 1 / (distil_mask.repeat(anchor_count, contr_count) + 1e-5) if distil_mask is not None else None
+        distil_mask = 1 / (distil_mask.repeat(anchor_count, contr_count) + 1e-5) if distil_mask is not None else None
 
         # Mask-out self-contrast cases
         logits_mask = torch.scatter(torch.ones_like(mask), 1,
             torch.arange(batch_size * anchor_count).view(-1, 1).to(self._device()), 0)
 
         mask = mask * logits_mask
-        #distil_mask = distil_mask * logits_mask if distil_mask is not None else None
+        distil_mask = distil_mask * logits_mask if distil_mask is not None else None
 
         # Compute log_prob
         exp_logits = torch.exp(logits) * logits_mask
@@ -683,12 +683,11 @@ class AutoEncoder(ContinualLearner):
         log_prob = logits - torch.log(exp_logits.sum(1, keepdim=True))
 
         # Compute mean of log-likelihood over positive: log(exp/sum(exp))/|P(i)|
-        mean_log_prob_pos = (mask * log_prob).sum(1) / mask.sum(1)
-        #mean_log_prob_pos = (mask * log_prob).sum(1) / mask.sum(1) if distil_mask is None else (distil_mask * log_prob).sum(1) / mask.sum(1)
+        #mean_log_prob_pos = (mask * log_prob).sum(1) / mask.sum(1)
+        mean_log_prob_pos = (mask * log_prob).sum(1) / mask.sum(1) if distil_mask is None else (distil_mask * log_prob).sum(1) / mask.sum(1)
 
         # Contrastive loss...
         contrL = - (temp / base_temp) * mean_log_prob_pos
-        #print(' Shape: ', contrL.shape)
         return contrL.view(anchor_count, batch_size).mean()
 
     ############################################################################################################################

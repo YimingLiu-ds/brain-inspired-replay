@@ -1452,7 +1452,7 @@ class AutoEncoder(ContinualLearner):
             #### Take encoder optimization-step...
             self.E_optimizer.step()
 
-        if self.contrastive and (loss_total_contr is None):
+        if self.contrastive:
             for param in self.parameters():
                 param.requires_grad = True
 

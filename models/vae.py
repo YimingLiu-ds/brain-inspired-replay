@@ -36,7 +36,7 @@ class AutoEncoder(ContinualLearner):
                  lamda_pl=0., lamda_rcl=1., lamda_vl=1., lamda_rep=1., 
                  #### Determine whether or not to implement class repulsion...
                  repulsion=False, kl_js='js', use_rep_factor=False, rep_factor=1.5, apply_mask=False,
-                 contrastive=False, **kwargs):
+                 contrastive=False, c_temp=0.07, **kwargs):
 
         # Set configurations for setting up the model
         super().__init__()
@@ -89,6 +89,7 @@ class AutoEncoder(ContinualLearner):
         ####
         self.lamda_rep = lamda_rep       # weight of difference loss
         self.contrastive = contrastive
+        self.c_temp = c_temp
         ####
 
         # Check whether there is at least 1 fc-layer
@@ -635,13 +636,14 @@ class AutoEncoder(ContinualLearner):
         diffL = torch.exp(log_q1_z_x) * (log_q1_z_x - log_q2_z_x) + 1e-6
         return torch.pow(diffL, -1)
 
-    def calculate_contr_loss(self, proj_z, y, scores=None, temp=0.07, base_temp=0.07):
+    def calculate_contr_loss(self, proj_z, y, scores=None, base_temp=0.07):
         '''Calculate contrastive loss on encoder and projection head.
         
         INPUT:  - [proj_z]     <3D tensor> [batch_size]x[n_views]x[proj_output_size]
 
         OUTPUT: - [contrL]     <1D tensor> of length [batch_size]'''
         
+        temp = self.c_temp
         use_scores = False
         #y = scores if use_scores and (scores is not None) else y
         

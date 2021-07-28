@@ -49,7 +49,8 @@ def define_autoencoder(args, config, device, generator=False, convE=None):
             n_rep=1 if not hasattr(args, 'n_rep') else args.n_rep,
             apply_mask=False if not hasattr(args, 'apply_mask') else args.apply_mask,
             param_tuning=False if not hasattr(args, 'tuning') else args.tuning,
-            contrastive=False if not hasattr(args, 'contrastive') else args.contrastive
+            contrastive=False if not hasattr(args, 'contrastive') else args.contrastive,
+            c_temp=0.07 if not hasattr(args, 'c_temp') else args.c_temp
             ####
         ).to(device)
     else:
@@ -87,7 +88,8 @@ def define_autoencoder(args, config, device, generator=False, convE=None):
             rep_factor=1.5 if not hasattr(args, 'rep_factor') else args.rep_factor,
             n_rep=1 if not hasattr(args, 'n_rep') else args.n_rep,
             param_tuning=False if not hasattr(args, 'tuning') else args.tuning,
-            contrastive=False if not hasattr(args, 'contrastive') else args.contrastive
+            contrastive=False if not hasattr(args, 'contrastive') else args.contrastive,
+            c_temp=0.07 if not hasattr(args, 'c_temp') else args.c_temp
             ####
         ).to(device)
     # -return model

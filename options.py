@@ -212,6 +212,7 @@ def add_replay_options(parser, only_MNIST=False, compare_code="none", **kwargs):
         replay.add_argument('--n-rep', type=int, default=1, dest='n_rep', help='number of neighbours to repel (def=1)')
         replay.add_argument('--apply-mask', action='store_true', dest='apply_mask', help="apply predetermined mask to rep-f and n-rep")
         replay.add_argument('--contrastive', action='store_true', dest='contrastive', help="use contrastive learning with replay")
+        replay.add_argument('--c-temp', type=float, default=0.07, dest='c_temp', help="contrastive learning loss temperture")
     return parser
 
 

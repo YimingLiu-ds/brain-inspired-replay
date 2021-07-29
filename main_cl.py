@@ -135,10 +135,10 @@ def run(args, verbose=False):
                 param.requires_grad = True
     
         model.E_optim_list = [
-            {'params': chain(model.convE.parameters(), model.fcProj.parameters()), 'lr': args.lr},
+            {'params': chain(model.convE.parameters(), model.fcProj.parameters()), 'lr': args.contr_lr, 'momentum': 0.9},
         ]
-        model.E_optimizer = optim.Adam(model.E_optim_list, betas=(0.9, 0.999))
-
+        #model.E_optimizer = optim.Adam(model.E_optim_list, betas=(0.9, 0.999))
+        model.E_optimizer = optim.SGD(model.E_optim_list)
 
     #-------------------------------------------------------------------------------------------------#
 

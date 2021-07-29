@@ -644,6 +644,7 @@ class AutoEncoder(ContinualLearner):
         OUTPUT: - [contrL]     <1D tensor> of length [batch_size]'''
         
         temp = self.c_temp
+        print(temp)
         use_scores = False
         #y = scores if use_scores and (scores is not None) else y
         

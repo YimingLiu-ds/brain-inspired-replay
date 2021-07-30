@@ -131,7 +131,7 @@ def run(args, verbose=False):
     #### Define encoder optimizer (only optimize the encoder & MLP parameters)...
     if use_views:
         if utils.checkattr(args, "freeze_convE"):
-            for param in chain(model.convE.parameters(), model.fcProj.parameters()):
+            for param in chain(model.convE.parameters(), model.fcE.parameters(), model.fcProj.parameters()):
                 param.requires_grad = True
     
         model.E_optim_list = [

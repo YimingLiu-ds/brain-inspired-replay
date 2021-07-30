@@ -984,7 +984,7 @@ class AutoEncoder(ContinualLearner):
 
         # Set model to training-mode
         self.train()
-        if (freeze_convE) and ((not self.contrastive) or (not contrast_current)):
+        if (freeze_convE) and (not self.contrastive):# or (not contrast_current)):
             # - if conv-layers are frozen, they shoud be set to eval() to prevent batch-norm layers from changing
             self.convE.eval()
 
@@ -1442,7 +1442,7 @@ class AutoEncoder(ContinualLearner):
         if self.contrastive and (loss_total_contr is not None):
             for param in self.parameters():
                 param.requires_grad = False
-            for param in chain(self.convE.parameters(), self.fcProj.parameters()):
+            for param in chain(self.convE.parameters(), self.fcE.parameters(), self.fcProj.parameters()):
                 param.requires_grad = True
     
             #### Update encoder gradients...

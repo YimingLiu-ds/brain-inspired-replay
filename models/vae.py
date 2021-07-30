@@ -644,18 +644,16 @@ class AutoEncoder(ContinualLearner):
         OUTPUT: - [contrL]     <1D tensor> of length [batch_size]'''
         
         temp = self.c_temp
-        use_scores = False
-        #y = scores if use_scores and (scores is not None) else y
+        use_scores = True
+        y = scores if use_scores and (scores is not None) else y
         
         batch_size = proj_z.shape[0]
-        y = y.contiguous().view(-1, 1)
-        #y = y.contiguous() if use_scores and (scores is not None) else y.contiguous().view(-1, 1)
+        y = y.contiguous() if use_scores and (scores is not None) else y.contiguous().view(-1, 1)
         if y.shape[0] != batch_size:
             raise ValueError('Num of labels does not match num of features!!')
 
-        distil_mask = torch.matmul(scores, scores.T).to(self._device()) if use_scores and (scores is not None) else None
-        mask = torch.eq(y, y.T).float().to(self._device())
-
+        mask = torch.matmul(y, y.T).to(self._device()) if use_scores and (scores is not None) else torch.eq(y, y.T).float().to(self._device())
+        
         contr_count = proj_z.shape[1]
         contr_feature = torch.cat(torch.unbind(proj_z, dim=1), dim=0)
         anchor_feature = contr_feature
@@ -670,14 +668,14 @@ class AutoEncoder(ContinualLearner):
 
         # Tile mask
         mask = mask.repeat(anchor_count, contr_count)
-        distil_mask = 1 / (distil_mask.repeat(anchor_count, contr_count) + 1e-5) if distil_mask is not None else None
+        #distil_mask = 1 / (distil_mask.repeat(anchor_count, contr_count) + 1e-5) if distil_mask is not None else None
 
         # Mask-out self-contrast cases
         logits_mask = torch.scatter(torch.ones_like(mask), 1,
             torch.arange(batch_size * anchor_count).view(-1, 1).to(self._device()), 0)
 
         mask = mask * logits_mask
-        distil_mask = distil_mask * logits_mask if distil_mask is not None else None
+        #distil_mask = distil_mask * logits_mask if distil_mask is not None else None
 
         # Compute log_prob
         exp_logits = torch.exp(logits) * logits_mask
@@ -685,8 +683,8 @@ class AutoEncoder(ContinualLearner):
         log_prob = logits - torch.log(exp_logits.sum(1, keepdim=True))
 
         # Compute mean of log-likelihood over positive: log(exp/sum(exp))/|P(i)|
-        #mean_log_prob_pos = (mask * log_prob).sum(1) / mask.sum(1)
-        mean_log_prob_pos = (mask * log_prob).sum(1) / mask.sum(1) if distil_mask is None else (distil_mask * log_prob).sum(1) / mask.sum(1)
+        mean_log_prob_pos = (mask * log_prob).sum(1) / mask.sum(1)
+        #mean_log_prob_pos = (mask * log_prob).sum(1) / mask.sum(1) if distil_mask is None else (distil_mask * log_prob).sum(1) / mask.sum(1)
 
         # Contrastive loss...
         contrL = - (temp / base_temp) * mean_log_prob_pos

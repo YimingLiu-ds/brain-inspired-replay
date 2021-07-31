@@ -1437,9 +1437,7 @@ class AutoEncoder(ContinualLearner):
             # Update gradients...
             loss_total.backward(retain_graph=True)
 
-        # Take optimization-step
-        self.optimizer.step()
-        
+
         #### Before encoder optimisation step, set requires_grad = True for encoder &
         #### encoder & projection head, and requires_grad = False for
         #### everything else...
@@ -1458,6 +1456,17 @@ class AutoEncoder(ContinualLearner):
         if self.contrastive:
             for param in self.parameters():
                 param.requires_grad = True
+            for param in chain(self.convE.parameters(), self.fcProj.parameters()):
+                param.requires_grad = False
+            
+            # Take optimization-step
+            self.optimizer.step()
+            
+            for param in chain(self.convE.parameters(), self.fcProj.parameters()):
+                param.requires_grad = True
+        else:
+            # Take optimization-step
+            self.optimizer.step()
 
         # Return the dictionary with different training-loss split in categories ###
         return {

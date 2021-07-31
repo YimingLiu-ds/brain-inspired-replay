@@ -238,7 +238,7 @@ class AutoEncoder(ContinualLearner):
 
     ##------ FORWARD FUNCTIONS --------##
 
-    def encode(self, x, not_hidden=False, use_views=False, batch_size=None):
+    def encode(self, x, not_hidden=False, use_views=False, batch_size=None, current=False):
         '''Pass input through feed-forward connections, to get [z_mean], [z_logvar] and [hE].
         Input [x] is either an image or, if [self.hidden], extracted "intermediate" or "internal" image features.'''
         # Forward-pass through conv-layers
@@ -251,7 +251,8 @@ class AutoEncoder(ContinualLearner):
         if self.contrastive:
             proj_z = F.normalize(self.fcProj(hE), dim=1)
             #proj_z = F.normalize(self.fcProj(image_features), dim=1)
-            hE = hE[:batch_size]
+            if not current:
+                hE = hE[:batch_size]
         ######
         # Get parameters for reparametrization
         (z_mean, z_logvar) = self.toZ(hE)
@@ -296,7 +297,7 @@ class AutoEncoder(ContinualLearner):
         image_recon = self.convD(self.to_image(image_features))
         return image_recon
 
-    def forward(self, x, gate_input=None, full=False, reparameterize=True, use_views=False, batch_size=None, **kwargs):
+    def forward(self, x, gate_input=None, full=False, reparameterize=True, use_views=False, batch_size=None, current=False, **kwargs):
         '''Forward function to propagate [x] through the encoder, reparametrization and decoder.
 
         Input: - [x]          <4D-tensor> of shape [batch_size]x[channels]x[image_size]x[image_size]
@@ -313,7 +314,7 @@ class AutoEncoder(ContinualLearner):
         If [full] is False, output is simply the predicted logits (i.e., [y_hat]).'''
         if full:  ## Used for Class-IL...
             # -encode (forward), reparameterize and decode (backward)
-            mu, logvar, hE, hidden_x, proj_z = self.encode(x, use_views=use_views, batch_size=batch_size)
+            mu, logvar, hE, hidden_x, proj_z = self.encode(x, use_views=use_views, batch_size=batch_size, current=current)
             z = self.reparameterize(mu, logvar) if reparameterize else mu
             gate_input = gate_input if self.dg_gates else None
             x_recon = self.decode(z, gate_input=gate_input)
@@ -1015,7 +1016,7 @@ class AutoEncoder(ContinualLearner):
             x = self.convE(x) if self.hidden else x   # -pre-processing (if 'hidden')
             recon_batch, y_hat, mu, logvar, z, proj_z = self(
                 x, gate_input=(task_tensor if self.dg_type=="task" else y) if self.dg_gates else None, full=True,
-                reparameterize=True, use_views=use_views, batch_size=batch_size
+                reparameterize=True, use_views=use_views, batch_size=batch_size, current=True
                 )
             if self.contrastive and contrast_current:
                 proj_z1, proj_z2 = torch.split(proj_z, [batch_size, batch_size], dim=0)
@@ -1109,7 +1110,8 @@ class AutoEncoder(ContinualLearner):
                 x_temp_ = self.convE(x_) if self.hidden and replay_not_hidden else x_
                 # -run full model
                 gate_input = (tasks_ if self.dg_type=="task" else y_predicted) if self.dg_gates else None
-                recon_batch, y_hat_all, mu, logvar, z, proj_z = self(x_temp_, gate_input=gate_input, full=True, use_views=use_views, batch_size=batch_size_replay)
+                recon_batch, y_hat_all, mu, logvar, z, proj_z = self(x_temp_, gate_input=gate_input, full=True, use_views=use_views, 
+                                                                     batch_size=batch_size_replay, current=False)
                 
                 if self.contrastive:
                     proj_z1, proj_z2 = torch.split(proj_z, [batch_size_replay, batch_size_replay], dim=0)

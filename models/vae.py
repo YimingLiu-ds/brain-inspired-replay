@@ -245,10 +245,14 @@ class AutoEncoder(ContinualLearner):
         hidden_x = x if (self.hidden and not not_hidden) else self.convE(x)
         image_features = self.flatten(hidden_x)
         # Forward-pass through fc-layers
-        hE = self.fcE(image_features[:batch_size]) if self.contrastive else self.fcE(image_features)
-        ###### Can add extra dense layers here (contrastive learning) ######
+        #hE = self.fcE(image_features[:batch_size]) if self.contrastive else self.fcE(image_features)
+        hE = self.fcE(image_features)
+        ######
         if self.contrastive:
-            proj_z = F.normalize(self.fcProj(image_features), dim=1)
+            proj_z = F.normalize(self.fcProj(hE), dim=1)
+            #proj_z = F.normalize(self.fcProj(image_features), dim=1)
+            hE = hE[:batch_size]
+        ######
         # Get parameters for reparametrization
         (z_mean, z_logvar) = self.toZ(hE)
         return z_mean, z_logvar, hE, hidden_x, proj_z if self.contrastive else None

@@ -210,6 +210,9 @@ def _VAE_loss_cb(log, visdom, model, tasks=None, iters_per_task=None, epochs=Non
                         elif model.replay_targets=="soft":
                             plot_data += [(1-current_rnt)*model.lamda_pl * loss_dict['distil_r']]
                             names += ['Distill - r (x{})'.format(model.lamda_pl)]
+                    if model.contrastive==True:
+                            plot_data += [loss_dict['contr_r']]
+                            names += ['Contr - r']
             visual.visdom.visualize_scalars(
                 scalars=plot_data, names=names, iteration=iteration,
                 title="VAE: loss ({})".format(visdom["graph"]), env=visdom["env"], ylabel="training loss"

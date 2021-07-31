@@ -122,7 +122,8 @@ class AutoEncoder(ContinualLearner):
                        excit_buffer=excit_buffer, gated=fc_gated)
         ###### Can add extra layers here ######
         if self.contrastive:
-            self.fcProj = MLP(size_per_layer=[2000,2000,128], batch_norm=False, nl='relu', output='none') #, final_norm=True)
+            #self.fcProj = MLP(size_per_layer=[2000,2000,128], batch_norm=False, nl='relu', output='none') #, final_norm=True)
+            self.fcProj = MLP(size_per_layer=[2000,100], batch_norm=False, nl='relu', output='none')
 
         # to z
         self.toZ = fc_layer_split(real_h_dim, z_dim, nl_mean='none', nl_logvar='none')#, drop=fc_drop)
@@ -248,15 +249,17 @@ class AutoEncoder(ContinualLearner):
         #hE = self.fcE(image_features[:batch_size]) if self.contrastive else self.fcE(image_features)
         hE = self.fcE(image_features)
         ######
-        if self.contrastive:
+        if self.contrastive and (not current):
             proj_z = F.normalize(self.fcProj(hE), dim=1)
             #proj_z = F.normalize(self.fcProj(image_features), dim=1)
-            if not current:
-                hE = hE[:batch_size]
+            #if not current:
+            hE = hE[:batch_size]
+        else:
+            proj_z = None
         ######
         # Get parameters for reparametrization
         (z_mean, z_logvar) = self.toZ(hE)
-        return z_mean, z_logvar, hE, hidden_x, proj_z if self.contrastive else None
+        return z_mean, z_logvar, hE, hidden_x, proj_z
 
     def classify(self, x, not_hidden=False, reparameterize=True, **kwargs):
         '''For input [x] (image or extracted "internal" image features), return all predicted "scores"/"logits".'''
@@ -695,7 +698,7 @@ class AutoEncoder(ContinualLearner):
 
         # Contrastive loss...
         contrL = - (temp / base_temp) * mean_log_prob_pos
-        return contrL.view(anchor_count, batch_size).mean#abs()
+        return contrL.view(anchor_count, batch_size).mean() #abs()
 
     ############################################################################################################################
     ############################################################################################################################

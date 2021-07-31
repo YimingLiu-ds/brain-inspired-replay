@@ -658,6 +658,8 @@ class AutoEncoder(ContinualLearner):
             raise ValueError('Num of labels does not match num of features!!')
 
         mask = torch.matmul(y, y.T).to(self._device()) if use_scores and (scores is not None) else torch.eq(y, y.T).float().to(self._device())
+        mask_max, _ = torch.max(mask, dim=1)
+        mask /= mask_max.view(-1,1)
         
         contr_count = proj_z.shape[1]
         contr_feature = torch.cat(torch.unbind(proj_z, dim=1), dim=0)

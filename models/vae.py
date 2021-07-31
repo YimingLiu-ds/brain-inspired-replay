@@ -649,7 +649,7 @@ class AutoEncoder(ContinualLearner):
         OUTPUT: - [contrL]     <1D tensor> of length [batch_size]'''
         
         temp = self.c_temp
-        use_scores = True
+        use_scores = False
         y = scores if use_scores and (scores is not None) else y
         
         batch_size = proj_z.shape[0]
@@ -658,8 +658,8 @@ class AutoEncoder(ContinualLearner):
             raise ValueError('Num of labels does not match num of features!!')
 
         mask = torch.matmul(y, y.T).to(self._device()) if use_scores and (scores is not None) else torch.eq(y, y.T).float().to(self._device())
-        mask_max, _ = torch.max(mask, dim=1)
-        mask /= mask_max.view(-1,1)
+        #mask_max, _ = torch.max(mask, dim=1)
+        #mask /= mask_max.view(-1,1)
         
         contr_count = proj_z.shape[1]
         contr_feature = torch.cat(torch.unbind(proj_z, dim=1), dim=0)
@@ -689,13 +689,13 @@ class AutoEncoder(ContinualLearner):
 
         log_prob = logits - torch.log(exp_logits.sum(1, keepdim=True))
 
-        # Compute mean of log-likelihood over positive: log(exp/sum(exp))/|P(i)|
+        # Compute mean of log-likelihood over positive: sum[log(exp/sum(exp))] / |P(i)|
         mean_log_prob_pos = (mask * log_prob).sum(1) / mask.sum(1)
         #mean_log_prob_pos = (mask * log_prob).sum(1) / mask.sum(1) if distil_mask is None else (distil_mask * log_prob).sum(1) / mask.sum(1)
 
         # Contrastive loss...
         contrL = - (temp / base_temp) * mean_log_prob_pos
-        return contrL.view(anchor_count, batch_size).mean()
+        return contrL.view(anchor_count, batch_size).mean#abs()
 
     ############################################################################################################################
     ############################################################################################################################

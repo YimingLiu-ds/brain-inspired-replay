@@ -590,7 +590,7 @@ class AutoEncoder(ContinualLearner):
     ############################################################################################################################
     ############################################################################################################################
     ############################################################################################################################
-    def calculate_diff_loss(self, mu_1, logvar_1, mu_2, logvar_2, kl_js='js', keep_inds=None, similarity=None):
+    def calculate_diff_loss(self, mu_1, logvar_1, mu_2, logvar_2, kl_js='js', keep_inds=None, similarity=None, attract=False):
         '''Calculate difference loss for each element in the batch.
 
         INPUT:  - [mu]       <2D-tensor> by encoder predicted mean for [z]
@@ -616,9 +616,18 @@ class AutoEncoder(ContinualLearner):
         else:
             diffL = 0.5 * torch.sum(torch.exp(logvar_1 - logvar_2) + torch.mul(torch.pow((mu_2 - mu_1), 2), torch.exp(-logvar_2)) + logvar_2 - logvar_1 - 1, dim=1)
         if similarity is None:
-            return torch.pow(diffL, -1) # if (keep_inds is None) else torch.pow(diffL, -1) / len(keep_inds)
+            if attract:
+                return diffL
+            else:
+                return torch.pow(diffL, -1) # if (keep_inds is None) else torch.pow(diffL, -1) / len(keep_inds)
+            #if torch.any(torch.isnan(diffL)):
+            #    print('\nMu_2:\n', mu_2)
+            #    print('\nLogvar_2:\n', logvar_2)
+            #    print('\nDiffL:\n', diffL)
+            #return diffL
         else:
-            return torch.pow(diffL, -1) * torch.sum(torch.pow(similarity, 2)) * 1e4    
+            diffL = torch.pow(diffL, -1)# * torch.sum(torch.pow(similarity, 2)) * 1e4
+            return diffL
     
     def calculate_rep2_loss(self, z_1, mu_1, logvar_1, z_2, mu_2, logvar_2):
         '''Calculate difference loss for each element in the batch.
@@ -642,7 +651,8 @@ class AutoEncoder(ContinualLearner):
 
         ## Combine
         diffL = torch.exp(log_q1_z_x) * (log_q1_z_x - log_q2_z_x) + 1e-6
-        return torch.pow(diffL, -1)
+        diffL = torch.pow(diffL, -1)
+        return diffL
 
     def calculate_contr_loss(self, proj_z, y, scores=None, base_temp=0.07):
         '''Calculate contrastive loss on encoder and projection head.
@@ -708,7 +718,7 @@ class AutoEncoder(ContinualLearner):
     def loss_function(self, x, y, x_recon, y_hat, scores, mu, z, logvar=None, allowed_classes=None, batch_weights=None,
                       diff=False, mu_diff=None, logvar_diff=None, mu_2=None, logvar_2=None, mu_3=None, logvar_3=None,
                       mu_4=None, logvar_4=None, kl_js='js', use_rep_factor=False, mu_b=None, logvar_b=None,
-                      keep_inds=None, similarity=None, proj_z=None, use_views=False):
+                      mu_b_sim=None, logvar_b_sim=None, keep_inds=None, similarity=None, proj_z=None, use_views=False):
         '''Calculate and return various losses that could be used for training and/or evaluating the model.
 
         INPUT:  - [x]           <4D-tensor> original image
@@ -797,10 +807,14 @@ class AutoEncoder(ContinualLearner):
                 diffL = self.calculate_diff_loss(mu_1=mu if mu_diff is None else mu_diff, logvar_1=logvar if logvar_diff is None else logvar_diff, mu_2=mu_b, logvar_2=logvar_b, \
                                                  kl_js=kl_js, keep_inds=keep_inds, similarity=similarity)
                 diffL = lf.weighted_average(diffL, weights=batch_weights, dim=0)
-                #diffL /= (self.image_channels * self.image_size ** 2)
-                #print(diffL)
+                if (mu_b_sim is not None) and (logvar_b_sim is not None):
+                    diffL_2 = self.calculate_diff_loss(mu_1=mu, logvar_1=logvar, mu_2=mu_b_sim, logvar_2=logvar_b_sim, \
+                                                     kl_js=kl_js, keep_inds=keep_inds, similarity=similarity, attract=True)
+                    diffL_2 = lf.weighted_average(diffL_2, weights=batch_weights, dim=0)
+                else:
+                    diffL_2 = None
             else:
-                diffL = None
+                diffL, diffL_2 = None, None
         ####
         
         ###-----Prediction loss-----###
@@ -1129,8 +1143,8 @@ class AutoEncoder(ContinualLearner):
                     diff = True
                     mu_diff = None
                     logvar_diff = None
-                    rep2, averaged = True, False
-                    img_exag = True
+                    rep2, averaged, cont = True, False, False
+                    img_exag = False
 
                     #specific_classes = top_scores_.to('cpu').numpy()
                     #act_sc_size = specific_classes.shape
@@ -1171,7 +1185,7 @@ class AutoEncoder(ContinualLearner):
                         samples_to_use_3 = torch.where(y_probs < (rep_f * y_probs_3))[0] if (specific_classes_3 is not None) else None 
                     else:
                         samples_to_use = None
-                    cont = True
+
                     if cont:
                         # Check probabilities...
                         y_probabilities = F.softmax(scores_[0], dim=1)
@@ -1181,6 +1195,8 @@ class AutoEncoder(ContinualLearner):
                         y_probs_1 = torch.gather(y_probabilities, 1, sc_1)[:, 0]
                         similarity = (y_probs_1 + 1e-3) / (y_probs + 1e-3)
                         similarity.detach()
+                    else:
+                        similarity = None
 
                     if (samples_to_use is None) or (samples_to_use.nelement() > 0):
                         if samples_to_use is not None:
@@ -1280,8 +1296,11 @@ class AutoEncoder(ContinualLearner):
                                 keep_inds = [i for i, x in enumerate(keep_inds) if x == 1]
                                 logvar_b = torch.cat(list(map(functools.partial(map_logvars, uniq=uniq_sc_0, mean_logvars=mean_logvar_0), specific_classes_1)), dim=0)
                             else:
+                                ### Changed from repulsion to attraction ###
                                 inds_1 = torch.tensor(list(map(functools.partial(map_inds, uniq=uniq_sc_0, inds=inds_sc_0), specific_classes_1)), device=self._device())
+                                #inds_sim = torch.tensor(list(map(functools.partial(map_inds, uniq=uniq_sc_0, inds=inds_sc_0), specific_classes_0)), device=self._device())
                                 mu_b, logvar_b = mu[inds_1], logvar[inds_1]
+                                #mu_b_sim, logvar_b_sim = mu[inds_sim], logvar[inds_sim]
 
                             if len(keep_inds)==0:
                                 diff = False
@@ -1351,7 +1370,8 @@ class AutoEncoder(ContinualLearner):
                         scores=scores_[replay_id] if (scores_ is not None) else None, mu=mu, z=z, logvar=logvar,
                         allowed_classes=active_classes[replay_id] if active_classes is not None else None,
                         diff=diff, mu_diff=mu_diff, logvar_diff=logvar_diff, mu_2=mu_2, logvar_2=logvar_2, kl_js=self.kl_js,
-                        mu_b=mu_b, logvar_b=logvar_b, keep_inds=keep_inds, similarity=similarity, proj_z=proj_z, use_views=use_views)
+                        mu_b=mu_b, logvar_b=logvar_b, keep_inds=keep_inds, similarity=similarity, 
+                        proj_z=proj_z, use_views=use_views)
 
                 elif mu_4 is None:
                     reconL_r[replay_id],variatL_r[replay_id],diffL_r[replay_id],diffL_2_r[replay_id],predL_r[replay_id],distilL_r[replay_id],contrL_r[replay_id] = self.loss_function(
@@ -1383,6 +1403,7 @@ class AutoEncoder(ContinualLearner):
                 if self.repulsion and diff:
                     if mu_3 is None:
                         loss_replay[replay_id] += self.lamda_rep * diffL_r[replay_id]
+                        #loss_replay[replay_id] += self.lamda_rep * diffL_2_r[replay_id]
                     elif mu_4 is None:
                         loss_replay[replay_id] += self.lamda_rep * diffL_r[replay_id]
                         loss_replay[replay_id] += self.lamda_rep * diffL_2_r[replay_id]
@@ -1486,6 +1507,7 @@ class AutoEncoder(ContinualLearner):
             'variat_r': sum(variatL_r).item()/n_replays if x_ is not None else 0,
             'diff_r': sum(diffL_r).item()/n_replays if (x_ is not None) and (self.repulsion) and diff else 0,
             'diff_2_r': sum(diffL_2_r).item()/n_replays if (x_ is not None) and (self.repulsion) and diff and (mu_3 is not None) else 0,
+            #'diff_2_r': sum(diffL_2_r).item()/n_replays if (x_ is not None) and (self.repulsion) and diff else 0,
             'diff_3_r': sum(diffL_3_r).item()/n_replays if (x_ is not None) and (self.repulsion) and diff  and (mu_4 is not None) else 0,
             'pred_r': sum(predL_r).item()/n_replays if x_ is not None else 0,
             'distil_r': sum(distilL_r).item()/n_replays if x_ is not None else 0,

@@ -36,7 +36,7 @@ class AutoEncoder(ContinualLearner):
                  lamda_pl=0., lamda_rcl=1., lamda_vl=1., lamda_rep=1., 
                  #### Determine whether or not to implement class repulsion...
                  repulsion=False, kl_js='js', use_rep_factor=False, rep_factor=1.5, apply_mask=False,
-                 contrastive=False, c_temp=0.07, **kwargs):
+                 contrastive=False, c_temp=0.07, c_drop=0.5, **kwargs):
 
         # Set configurations for setting up the model
         super().__init__()
@@ -90,6 +90,7 @@ class AutoEncoder(ContinualLearner):
         self.lamda_rep = lamda_rep       # weight of difference loss
         self.contrastive = contrastive
         self.c_temp = c_temp
+        self.c_drop = c_drop
         ####
 
         # Check whether there is at least 1 fc-layer
@@ -250,7 +251,7 @@ class AutoEncoder(ContinualLearner):
         hE = self.fcE(image_features)
         ######
         if self.contrastive and (not current):
-            proj_z = F.normalize(self.fcProj(F.dropout(hE, p=0.5)), dim=1)
+            proj_z = F.normalize(self.fcProj(F.dropout(hE, p=self.c_drop)), dim=1)
             #proj_z = F.normalize(self.fcProj(image_features), dim=1)
             #if not current:
             hE = hE[:batch_size]

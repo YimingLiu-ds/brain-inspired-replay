@@ -130,14 +130,15 @@ def run(args, verbose=False):
 
     #### Define encoder optimizer (only optimize the encoder & MLP parameters)...
     if use_views:
-        if utils.checkattr(args, "freeze_convE"):
-            for param in chain(model.convE.parameters(), model.fcE.parameters(), model.fcProj.parameters()):
-                param.requires_grad = True
+        #if utils.checkattr(args, "freeze_convE"):
+            #for param in chain(model.convE.parameters(), model.fcE.parameters(), model.fcProj.parameters()):
+            #for param in chain(model.fcE.parameters(), model.fcProj.parameters()):
+            #    param.requires_grad = True
     
         model.E_optim_list = [
+            #{'params': chain(model.fcE.parameters(), model.fcProj.parameters()), 'lr': args.contr_lr},
             {'params': chain(model.convE.parameters(), model.fcE.parameters(), model.fcProj.parameters()), 'lr': args.contr_lr},
         ]
-        #model.E_optimizer = optim.Adam(model.E_optim_list, betas=(0.9, 0.999))
         model.E_optimizer = optim.Adam(model.E_optim_list, betas=(0.9, 0.999))
 
     #-------------------------------------------------------------------------------------------------#

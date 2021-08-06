@@ -122,8 +122,8 @@ class AutoEncoder(ContinualLearner):
                        excit_buffer=excit_buffer, gated=fc_gated)
         ###### Can add extra layers here ######
         if self.contrastive:
-            #self.fcProj = MLP(size_per_layer=[2000,2000,128], batch_norm=False, nl='relu', output='none') #, final_norm=True)
-            self.fcProj = MLP(size_per_layer=[2000,100], batch_norm=False, nl='relu', output='none')
+            self.fcProj = MLP(size_per_layer=[2000,2000,128], batch_norm=False, nl='relu', output='none') #, final_norm=True)
+            #self.fcProj = MLP(size_per_layer=[2000,100], batch_norm=False, nl='relu', output='none')
 
         # to z
         self.toZ = fc_layer_split(real_h_dim, z_dim, nl_mean='none', nl_logvar='none')#, drop=fc_drop)
@@ -250,7 +250,7 @@ class AutoEncoder(ContinualLearner):
         hE = self.fcE(image_features)
         ######
         if self.contrastive and (not current):
-            proj_z = F.normalize(self.fcProj(hE), dim=1)
+            proj_z = F.normalize(self.fcProj(F.dropout(hE, p=0.5)), dim=1)
             #proj_z = F.normalize(self.fcProj(image_features), dim=1)
             #if not current:
             hE = hE[:batch_size]
@@ -1008,7 +1008,7 @@ class AutoEncoder(ContinualLearner):
 
         # Set model to training-mode
         self.train()
-        if (freeze_convE) and (not self.contrastive):# or (not contrast_current)):
+        if (freeze_convE) and (not self.contrastive):
             # - if conv-layers are frozen, they shoud be set to eval() to prevent batch-norm layers from changing
             self.convE.eval()
 
@@ -1473,6 +1473,7 @@ class AutoEncoder(ContinualLearner):
             for param in self.parameters():
                 param.requires_grad = False
             for param in chain(self.convE.parameters(), self.fcE.parameters(), self.fcProj.parameters()):
+            #for param in chain(self.fcE.parameters(), self.fcProj.parameters()):
                 param.requires_grad = True
     
             #### Update encoder gradients...
@@ -1490,8 +1491,9 @@ class AutoEncoder(ContinualLearner):
             # Take optimization-step
             self.optimizer.step()
             
-            for param in chain(self.convE.parameters(), self.fcProj.parameters()):
-                param.requires_grad = True
+            #for param in chain(self.convE.parameters(), self.fcProj.parameters()):
+            #for param in self.fcProj.parameters():
+            #    param.requires_grad = True
         else:
             # Take optimization-step
             self.optimizer.step()

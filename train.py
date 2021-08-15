@@ -303,7 +303,7 @@ def train_cl(model, train_datasets, replay_mode="none", scenario="task", rnt=Non
             y_ = y_ if (model.replay_targets=="hard") else None
             scores_ = scores_ if (model.replay_targets=="soft") else None
             
-            if args.repulsion:
+            if args.repulsion or args.recon_repulsion:
                 #### Finding top 2 scores predicted by classifier for each replay 'image'...
                 if scores_ is not None:
                     if not args.use_rep_factor:

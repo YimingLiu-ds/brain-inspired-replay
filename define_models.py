@@ -52,7 +52,8 @@ def define_autoencoder(args, config, device, generator=False, convE=None):
             contrastive=False if not hasattr(args, 'contrastive') else args.contrastive,
             c_temp=0.07 if not hasattr(args, 'c_temp') else args.c_temp,
             contr_lr=0.001 if not hasattr(args, 'contr_lr') else args.contr_lr,
-            c_drop=0.5 if not hasattr(args, 'c_drop') else args.c_drop
+            c_drop=0.5 if not hasattr(args, 'c_drop') else args.c_drop,
+            recon_repulsion=False if not hasattr(args, 'recon_repulsion') else args.recon_repulsion
             ####
         ).to(device)
     else:
@@ -93,7 +94,8 @@ def define_autoencoder(args, config, device, generator=False, convE=None):
             contrastive=False if not hasattr(args, 'contrastive') else args.contrastive,
             c_temp=0.07 if not hasattr(args, 'c_temp') else args.c_temp,
             contr_lr=0.001 if not hasattr(args, 'contr_lr') else args.contr_lr,
-            c_drop=0.5 if not hasattr(args, 'c_drop') else args.c_drop
+            c_drop=0.5 if not hasattr(args, 'c_drop') else args.c_drop,
+            recon_repulsion=False if not hasattr(args, 'recon_repulsion') else args.recon_repulsion
             ####
         ).to(device)
     # -return model

@@ -36,7 +36,7 @@ class AutoEncoder(ContinualLearner):
                  lamda_pl=0., lamda_rcl=1., lamda_vl=1., lamda_rep=1., 
                  #### Determine whether or not to implement class repulsion...
                  repulsion=False, kl_js='js', use_rep_factor=False, rep_factor=1.5, apply_mask=False,
-                 contrastive=False, c_temp=0.07, c_drop=0.5, **kwargs):
+                 contrastive=False, c_temp=0.07, c_drop=0.5, recon_repulsion=False, **kwargs):
 
         # Set configurations for setting up the model
         super().__init__()
@@ -63,7 +63,8 @@ class AutoEncoder(ContinualLearner):
         self.gate_size = (tasks if dg_type=="task" else classes) if self.dg_gates else 0
         self.scenario = scenario
         ####
-        self.repulsion = repulsion 
+        self.repulsion = repulsion
+        self.recon_repulsion = recon_repulsion
         ####
         
         # Optimizer (needs to be set before training starts))
@@ -123,7 +124,7 @@ class AutoEncoder(ContinualLearner):
                        excit_buffer=excit_buffer, gated=fc_gated)
         ###### Can add extra layers here ######
         if self.contrastive:
-            self.fcProj = MLP(size_per_layer=[2000,2000,128], batch_norm=False, nl='relu', output='none') #, final_norm=True)
+            self.fcProj = MLP(size_per_layer=[2000,2000,100], batch_norm=False, nl='relu', output='none') #, final_norm=True)
             #self.fcProj = MLP(size_per_layer=[2000,100], batch_norm=False, nl='relu', output='none')
 
         # to z
@@ -664,6 +665,7 @@ class AutoEncoder(ContinualLearner):
         
         temp = self.c_temp
         use_scores = False
+        hard_sampling = False
         y = scores if use_scores and (scores is not None) else y
         
         batch_size = proj_z.shape[0]
@@ -685,7 +687,7 @@ class AutoEncoder(ContinualLearner):
 
         # For numerical stability
         logits_max, _ = torch.max(anchor_dot_contr, dim=1, keepdim=True)
-        logits = anchor_dot_contr - logits_max.detach()     
+        logits = anchor_dot_contr - logits_max.detach()  
 
         # Tile mask
         mask = mask.repeat(anchor_count, contr_count)
@@ -697,11 +699,33 @@ class AutoEncoder(ContinualLearner):
 
         mask = mask * logits_mask
         #distil_mask = distil_mask * logits_mask if distil_mask is not None else None
+        
+        ## Hard sampling (a)...
+        if hard_sampling:
+            tau = 0.05
+            beta = 1.0
+            N_neg = ((list(y.shape)[0]*2) - mask.sum(1)).detach()
+            neg_mask = logits_mask - mask
+            pos_mask = mask
+            exp_logits = torch.exp(logits)
+        
+            exp_neg = exp_logits * neg_mask
+            exp_pos = exp_logits * pos_mask
+
+            exp_neg_beta = torch.pow(exp_neg, beta)
+            reweighted_neg = exp_neg_beta.sum(1) / (exp_neg_beta.mean(1))            
+
+            Ng_sum = ((- N_neg * tau * exp_pos) + (reweighted_neg * exp_neg)).sum(1, keepdim=True) / (1 - tau)
+            Ng_sum = torch.where(Ng_sum < (N_neg * torch.exp(torch.tensor(-1 / temp))), N_neg * torch.exp(torch.tensor(-1 / temp)), Ng_sum)
+            pos_sum = exp_pos.sum(1, keepdim=True)
+
+        else:
+            exp_logits = torch.exp(logits)
 
         # Compute log_prob
-        exp_logits = torch.exp(logits) * logits_mask
-
-        log_prob = logits - torch.log(exp_logits.sum(1, keepdim=True))
+        exp_logits = exp_logits * logits_mask
+        
+        log_prob = logits - torch.log(exp_logits.sum(1, keepdim=True)) if not hard_sampling else logits - torch.log(Ng_sum + pos_sum)
 
         # Compute mean of log-likelihood over positive: sum[log(exp/sum(exp))] / |P(i)|
         mean_log_prob_pos = (mask * log_prob).sum(1) / mask.sum(1)
@@ -710,6 +734,33 @@ class AutoEncoder(ContinualLearner):
         # Contrastive loss...
         contrL = - (temp / base_temp) * mean_log_prob_pos
         return contrL.view(anchor_count, batch_size).mean() #abs()
+    
+    def calculate_overlap_loss(self, mu_1, logvar_1, mu_2, logvar_2):
+        '''Calculate difference loss for each element in the batch.
+
+        INPUT:  - [mu]       <2D-tensor> by encoder predicted mean for [z]
+                - [logvar]   <2D-tensor> by encoder predicted logvar for [z]
+                - [z]        <2D-tensor> with sampled latent variables (1st dimension (ie, dim=0) is "batch-dimension")
+
+        OUTPUT: - [diffL]   <1D-tensor> of length [batch_size]'''
+        
+        #### Aproximate overlap between two gaussian distributions...
+        lower_bound_1, upper_bound_1 = mu_1 - 2*torch.exp(0.5*logvar_1), mu_1 + 2*torch.exp(0.5*logvar_1)
+        lower_bound_2, upper_bound_2 = mu_2 - 2*torch.exp(0.5*logvar_2), mu_2 + 2*torch.exp(0.5*logvar_2)
+        
+        within_lower_1 = torch.eq(torch.maximum(lower_bound_2, lower_bound_1), lower_bound_2).float()
+        within_upper_1 = torch.eq(torch.minimum(lower_bound_2, upper_bound_1), lower_bound_2).float()
+        overlaped_distributions = within_lower_1 * within_upper_1
+        
+        within_lower_2 = torch.eq(torch.maximum(lower_bound_1, lower_bound_2), lower_bound_1).float()
+        within_upper_2 = torch.eq(torch.minimum(lower_bound_1, upper_bound_2), lower_bound_1).float()
+        overlaped_distributions += (within_lower_2 * within_upper_2)
+
+        #overlaped_distributions = torch.where(((lower_bound_2 > lower_bound_1) and (lower_bound_2 < upperbound_1)) or ((lower_bound_1 > lower_bound_2) and (lower_bound_1 < upperbound_2))).float()
+        overlapL = overlaped_distributions * (torch.minimum(upper_bound_1, upper_bound_2) - torch.maximum(lower_bound_1, lower_bound_2))
+        overlapL = overlapL.sum(1)
+        
+        return overlapL
 
     ############################################################################################################################
     ############################################################################################################################
@@ -719,7 +770,7 @@ class AutoEncoder(ContinualLearner):
     def loss_function(self, x, y, x_recon, y_hat, scores, mu, z, logvar=None, allowed_classes=None, batch_weights=None,
                       diff=False, mu_diff=None, logvar_diff=None, mu_2=None, logvar_2=None, mu_3=None, logvar_3=None,
                       mu_4=None, logvar_4=None, kl_js='js', use_rep_factor=False, mu_b=None, logvar_b=None,
-                      mu_b_sim=None, logvar_b_sim=None, keep_inds=None, similarity=None, proj_z=None, use_views=False):
+                      mu_b_sim=None, logvar_b_sim=None, keep_inds=None, similarity=None, proj_z=None, use_views=False, x_b=None):
         '''Calculate and return various losses that could be used for training and/or evaluating the model.
 
         INPUT:  - [x]           <4D-tensor> original image
@@ -739,12 +790,19 @@ class AutoEncoder(ContinualLearner):
                 - [predL]        prediction loss indicating how well targets [y] are predicted
                 - [distilL]      knowledge distillation (KD) loss indicating how well the predicted "logits" ([y_hat])
                                      match the target "logits" ([scores])'''
-
+            
         ###-----Reconstruction loss-----###
         batch_size = x.size(0)
         reconL = self.calculate_recon_loss(x=x.view(batch_size, -1), average=True,
                                            x_recon=x_recon.view(batch_size, -1)) # -> average over pixels
         reconL = lf.weighted_average(reconL, weights=batch_weights, dim=0)       # -> average over batch
+
+        if self.recon_repulsion and (x_b is not None):
+            recon_repL = torch.pow(self.calculate_recon_loss(x=x_b.view(batch_size, -1), average=True,
+                                           x_recon=x_recon.view(batch_size, -1)), -1)
+            recon_repL = lf.weighted_average(recon_repL, weights=batch_weights, dim=0)
+        else:
+            recon_repL = None
 
         ###-----Variational loss-----###
         if logvar is not None:
@@ -805,15 +863,17 @@ class AutoEncoder(ContinualLearner):
         if rep2:
             if (mu_b is not None) and (logvar_b is not None):
                 #diffL = self.calculate_rep2_loss(z_1=z, mu_1=mu, logvar_1=logvar, z_2=z_b, mu_2=mu_b, logvar_2=logvar_b)
-                diffL = self.calculate_diff_loss(mu_1=mu if mu_diff is None else mu_diff, logvar_1=logvar if logvar_diff is None else logvar_diff, mu_2=mu_b, logvar_2=logvar_b, \
-                                                 kl_js=kl_js, keep_inds=keep_inds, similarity=similarity)
+                #diffL = self.calculate_diff_loss(mu_1=mu if mu_diff is None else mu_diff, logvar_1=logvar if logvar_diff is None else logvar_diff, mu_2=mu_b, logvar_2=logvar_b, \
+                #                                 kl_js=kl_js, keep_inds=keep_inds, similarity=similarity)
+                diffL = self.calculate_overlap_loss(mu_1=mu, logvar_1=logvar, mu_2=mu_b, logvar_2=logvar_b)
                 diffL = lf.weighted_average(diffL, weights=batch_weights, dim=0)
-                if (mu_b_sim is not None) and (logvar_b_sim is not None):
-                    diffL_2 = self.calculate_diff_loss(mu_1=mu, logvar_1=logvar, mu_2=mu_b_sim, logvar_2=logvar_b_sim, \
-                                                     kl_js=kl_js, keep_inds=keep_inds, similarity=similarity, attract=True)
-                    diffL_2 = lf.weighted_average(diffL_2, weights=batch_weights, dim=0)
-                else:
-                    diffL_2 = None
+                #if (mu_b_sim is not None) and (logvar_b_sim is not None):
+                #    diffL_2 = self.calculate_diff_loss(mu_1=mu, logvar_1=logvar, mu_2=mu_b_sim, logvar_2=logvar_b_sim, \
+                #                                     kl_js=kl_js, keep_inds=keep_inds, similarity=similarity, attract=True)
+                #    diffL_2 = lf.weighted_average(diffL_2, weights=batch_weights, dim=0)
+                #else:
+                #    diffL_2 = None
+                diffL_2 = None
             else:
                 diffL, diffL_2 = None, None
         ####
@@ -838,7 +898,6 @@ class AutoEncoder(ContinualLearner):
         if (proj_z is not None) and (self.contrastive):
             y = torch.argmax(scores, dim=1) if y is None else y
             contrL = self.calculate_contr_loss(proj_z, y, scores)
-            #print(contrL)
             #contrL = lf.weighted_average(contrL, weights=batch_weights, dim=0)
         else:
             contrL = None
@@ -846,15 +905,15 @@ class AutoEncoder(ContinualLearner):
         # Return a tuple of the calculated losses
         if diffL is None:
             if (not self.contrastive) or (proj_z is None):
-                return reconL, variatL, predL, distilL, contrL
+                return reconL, variatL, predL, distilL, contrL, recon_repL
             else:
-                return reconL, variatL, predL, distilL, contrL
+                return reconL, variatL, predL, distilL, contrL, recon_repL
         elif diffL_2 is None:
-            return reconL, variatL, diffL, predL, distilL, contrL
+            return reconL, variatL, diffL, predL, distilL, contrL, recon_repL
         elif diffL_3 is None:
-            return reconL, variatL, diffL, diffL_2, predL, distilL, contrL
+            return reconL, variatL, diffL, diffL_2, predL, distilL, contrL, recon_repL
         else:
-            return reconL, variatL, diffL, diffL_2, diffL_3, predL, distilL, contrL
+            return reconL, variatL, diffL, diffL_2, diffL_3, predL, distilL, contrL, recon_repL
 
 
 
@@ -1051,12 +1110,12 @@ class AutoEncoder(ContinualLearner):
 
             # Calculate all losses ###
             if (not self.contrastive) or (not contrast_current):
-                reconL, variatL, predL, _, _ = self.loss_function(
+                reconL, variatL, predL, _, _, _ = self.loss_function(
                     x=x, y=y, x_recon=recon_batch, y_hat=y_hat, scores=None, mu=mu, z=z, logvar=logvar,
                     allowed_classes=class_entries if active_classes is not None else None, use_views=use_views)
                 #--> [allowed_classes] will be used only if [y] is not provided
             else:
-                reconL, variatL, predL, _, contrL = self.loss_function(
+                reconL, variatL, predL, _, contrL, _ = self.loss_function(
                     x=x, y=y, x_recon=recon_batch, y_hat=y_hat, scores=None, mu=mu, z=z, logvar=logvar,
                     allowed_classes=class_entries if active_classes is not None else None, proj_z=proj_z, use_views=use_views)
 
@@ -1089,6 +1148,7 @@ class AutoEncoder(ContinualLearner):
             self.convE.train()
         
         mu_2, logvar_2, mu_3, mu_4 = None, None, None, None
+        x_b = None
         
         if x_ is not None:
             # In the Task-IL scenario, [y_] or [scores_] is a list and [x_] needs to be evaluated on each of them
@@ -1109,6 +1169,7 @@ class AutoEncoder(ContinualLearner):
             diffL_r = [torch.tensor(0., device=self._device())]*n_replays
             diffL_2_r = [torch.tensor(0., device=self._device())]*n_replays
             diffL_3_r = [torch.tensor(0., device=self._device())]*n_replays
+            recon_repL_r = [torch.tensor(0., device=self._device())]*n_replays
 
             # Run model (if [x_] is not a list with separate replay per task and there is no task-specific mask)  ## Used for Class-IL...
             if (not type(x_)==list) and (self.mask_dict is None) and (not (self.dg_gates and TaskIL)):
@@ -1302,6 +1363,8 @@ class AutoEncoder(ContinualLearner):
                                 #inds_sim = torch.tensor(list(map(functools.partial(map_inds, uniq=uniq_sc_0, inds=inds_sc_0), specific_classes_0)), device=self._device())
                                 mu_b, logvar_b = mu[inds_1], logvar[inds_1]
                                 #mu_b_sim, logvar_b_sim = mu[inds_sim], logvar[inds_sim]
+                                if self.recon_repulsion:
+                                    x_b = x[inds_1]
 
                             if len(keep_inds)==0:
                                 diff = False
@@ -1354,42 +1417,42 @@ class AutoEncoder(ContinualLearner):
                 # Calculate all losses
                 if (not self.repulsion) or (not diff):
                     if self.contrastive:
-                        reconL_r[replay_id],variatL_r[replay_id],predL_r[replay_id],distilL_r[replay_id], contrL_r[replay_id] = self.loss_function(
+                        reconL_r[replay_id],variatL_r[replay_id],predL_r[replay_id],distilL_r[replay_id], contrL_r[replay_id], recon_repL_r[replay_id] = self.loss_function(
                             x=x_temp_, y=y_[replay_id] if (y_ is not None) else None, x_recon=recon_batch, y_hat=y_hat,
                             scores=scores_[replay_id] if (scores_ is not None) else None, mu=mu, z=z, logvar=logvar,
-                            allowed_classes=active_classes[replay_id] if active_classes is not None else None, proj_z=proj_z, use_views=use_views
+                            allowed_classes=active_classes[replay_id] if active_classes is not None else None, proj_z=proj_z, use_views=use_views, x_b=x_b
                         )
                     else:
-                        reconL_r[replay_id],variatL_r[replay_id],predL_r[replay_id],distilL_r[replay_id], contrL_r[replay_id] = self.loss_function(
+                        reconL_r[replay_id],variatL_r[replay_id],predL_r[replay_id],distilL_r[replay_id], contrL_r[replay_id], recon_repL_r[replay_id] = self.loss_function(
                             x=x_temp_, y=y_[replay_id] if (y_ is not None) else None, x_recon=recon_batch, y_hat=y_hat,
                             scores=scores_[replay_id] if (scores_ is not None) else None, mu=mu, z=z, logvar=logvar,
-                            allowed_classes=active_classes[replay_id] if active_classes is not None else None, proj_z=proj_z, use_views=use_views
+                            allowed_classes=active_classes[replay_id] if active_classes is not None else None, proj_z=proj_z, use_views=use_views, x_b=x_b
                         )
                 elif mu_3 is None: ####
-                    reconL_r[replay_id],variatL_r[replay_id],diffL_r[replay_id],predL_r[replay_id],distilL_r[replay_id],contrL_r[replay_id] = self.loss_function(
+                    reconL_r[replay_id],variatL_r[replay_id],diffL_r[replay_id],predL_r[replay_id],distilL_r[replay_id],contrL_r[replay_id],recon_repL_r[replay_id] = self.loss_function(
                         x=x_temp_, y=y_[replay_id] if (y_ is not None) else None, x_recon=recon_batch, y_hat=y_hat,
                         scores=scores_[replay_id] if (scores_ is not None) else None, mu=mu, z=z, logvar=logvar,
                         allowed_classes=active_classes[replay_id] if active_classes is not None else None,
                         diff=diff, mu_diff=mu_diff, logvar_diff=logvar_diff, mu_2=mu_2, logvar_2=logvar_2, kl_js=self.kl_js,
                         mu_b=mu_b, logvar_b=logvar_b, keep_inds=keep_inds, similarity=similarity, 
-                        proj_z=proj_z, use_views=use_views)
+                        proj_z=proj_z, use_views=use_views, x_b=x_b)
 
                 elif mu_4 is None:
-                    reconL_r[replay_id],variatL_r[replay_id],diffL_r[replay_id],diffL_2_r[replay_id],predL_r[replay_id],distilL_r[replay_id],contrL_r[replay_id] = self.loss_function(
+                    reconL_r[replay_id],variatL_r[replay_id],diffL_r[replay_id],diffL_2_r[replay_id],predL_r[replay_id],distilL_r[replay_id],contrL_r[replay_id],recon_repL_r[replay_id] = self.loss_function(
                         x=x_temp_, y=y_[replay_id] if (y_ is not None) else None, x_recon=recon_batch, y_hat=y_hat,
                         scores=scores_[replay_id] if (scores_ is not None) else None, mu=mu, z=z, logvar=logvar,
                         allowed_classes=active_classes[replay_id] if active_classes is not None else None,
                         diff=diff, mu_diff=mu_diff, logvar_diff=logvar_diff, mu_2=mu_2, logvar_2=logvar_2, 
-                        mu_3=mu_3, logvar_3=logvar_3, kl_js=self.kl_js, use_rep_factor=self.use_rep_factor, proj_z=proj_z, use_views=use_views
+                        mu_3=mu_3, logvar_3=logvar_3, kl_js=self.kl_js, use_rep_factor=self.use_rep_factor, proj_z=proj_z, use_views=use_views, x_b=x_b
                     )
                 else:
-                    reconL_r[replay_id],variatL_r[replay_id],diffL_r[replay_id],diffL_2_r[replay_id],diffL_3_r[replay_id],predL_r[replay_id],distilL_r[replay_id],contrL_r[replay_id] = self.loss_function(
+                    reconL_r[replay_id],variatL_r[replay_id],diffL_r[replay_id],diffL_2_r[replay_id],diffL_3_r[replay_id],predL_r[replay_id],distilL_r[replay_id],contrL_r[replay_id],recon_repL_r[replay_id] = self.loss_function(
                         x=x_temp_, y=y_[replay_id] if (y_ is not None) else None, x_recon=recon_batch, y_hat=y_hat,
                         scores=scores_[replay_id] if (scores_ is not None) else None, mu=mu, z=z, logvar=logvar,
                         allowed_classes=active_classes[replay_id] if active_classes is not None else None,
                         diff=diff, mu_diff=mu_diff, logvar_diff=logvar_diff, mu_2=mu_2, logvar_2=logvar_2, 
                         mu_3=mu_3, logvar_3=logvar_3, mu_4=mu_4, logvar_4=logvar_4, kl_js=self.kl_js, use_rep_factor=self.use_rep_factor,
-                        proj_z=proj_z, use_views=use_views
+                        proj_z=proj_z, use_views=use_views, x_b=x_b
                     ) ####
 
 
@@ -1412,6 +1475,8 @@ class AutoEncoder(ContinualLearner):
                         loss_replay[replay_id] += self.lamda_rep * diffL_r[replay_id]
                         loss_replay[replay_id] += self.lamda_rep * diffL_2_r[replay_id]
                         loss_replay[replay_id] += self.lamda_rep * diffL_3_r[replay_id]
+                if self.recon_repulsion and (x_b is not None):
+                    loss_replay[replay_id] += self.lamda_rep * recon_repL_r[replay_id]
                 ####
 
                 # If task-specific mask, backward pass needs to be performed before next task-mask is applied
@@ -1512,6 +1577,7 @@ class AutoEncoder(ContinualLearner):
             'diff_2_r': sum(diffL_2_r).item()/n_replays if (x_ is not None) and (self.repulsion) and diff and (mu_3 is not None) else 0,
             #'diff_2_r': sum(diffL_2_r).item()/n_replays if (x_ is not None) and (self.repulsion) and diff else 0,
             'diff_3_r': sum(diffL_3_r).item()/n_replays if (x_ is not None) and (self.repulsion) and diff  and (mu_4 is not None) else 0,
+            'recon_repL_r': sum(recon_repL_r).item()/n_replays if (x_ is not None) and (self.recon_repulsion) and (x_b is not None) else 0,
             'pred_r': sum(predL_r).item()/n_replays if x_ is not None else 0,
             'distil_r': sum(distilL_r).item()/n_replays if x_ is not None else 0,
             'contr_r': sum(contrL_r).item()/n_replays if (x_ is not None) and (self.contrastive) else 0,

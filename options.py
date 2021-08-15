@@ -215,6 +215,7 @@ def add_replay_options(parser, only_MNIST=False, compare_code="none", **kwargs):
         replay.add_argument('--c-temp', type=float, default=0.07, dest='c_temp', help="contrastive learning loss temperture")
         replay.add_argument('--c-lr', type=float, default=0.001, dest='contr_lr', help="contrastive learning rate")
         replay.add_argument('--c-drop', type=float, default=0.5, dest='c_drop', help="contrastive learning dropout rate")
+        replay.add_argument('--recon-repulsion', action='store_true', dest='recon_repulsion', help="use recon repulsion with replay")
     return parser
 
 

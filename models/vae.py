@@ -1147,7 +1147,6 @@ class AutoEncoder(ContinualLearner):
             self.convE.train()
         
         mu_2, logvar_2, mu_3, mu_4 = None, None, None, None
-        x_b = None
         
         if x_ is not None:
             # In the Task-IL scenario, [y_] or [scores_] is a list and [x_] needs to be evaluated on each of them
@@ -1202,7 +1201,7 @@ class AutoEncoder(ContinualLearner):
 
                 if top_scores_ is not None:
                     diff = True
-                    mu_diff, logvar_diff = None, None
+                    mu_diff, logvar_diff, x_b, recon_batch_b = None, None, None, None
                     rep2, averaged, cont = True, False, False
                     img_exag = False
 

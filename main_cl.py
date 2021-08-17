@@ -382,8 +382,10 @@ def run(args, verbose=False):
             "classes" if args.scenario=="class" else "tasks", average_precs
         ))
     # -write out to text file
-    #output_file = open("{}/prec-{} {} {} {} {} {}.txt".format(args.r_dir, param_stamp, args.kl_js, args.rep_factor, args.repl, args.use_rep_factor, args.n_rep), 'a+')
-    output_file = open("{}/{}bsz {}rbsz {}iters {}ctemp contr-{} {}clr {}drop {}recrep {}reclam.txt".format(args.r_dir, args.batch, args.batch_replay, args.iters, args.c_temp, args.contrastive, args.contr_lr, args.c_drop, args.recon_repulsion, args.repl), 'a+')
+    output_file = open("{}/{}bsz {}rbsz {}iters {}ctemp contr-{} {}clr {}drop {}recrep {}rec-lam {}aver.txt".format(\
+                                            args.r_dir, args.batch, args.batch_replay, args.iters, args.c_temp, args.contrastive, \
+                                            args.contr_lr, args.c_drop, args.recon_repulsion, args.recon_repl, args.recon_rep_averaged\
+                                                ), 'a+')
     output_file.write('\nAccuracy of final model on test-set:')
     for i in range(args.tasks):
         output_file.write("\n - {} {}: {:.4f}".format("For classes from task" if args.scenario=="class" else "Task", i+1, precs[i]))

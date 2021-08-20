@@ -55,7 +55,8 @@ def define_autoencoder(args, config, device, generator=False, convE=None):
             c_drop=0.5 if not hasattr(args, 'c_drop') else args.c_drop,
             recon_repulsion=False if not hasattr(args, 'recon_repulsion') else args.recon_repulsion,
             recon_rep_averaged=False if not hasattr(args, 'recon_rep_averaged') else args.recon_rep_averaged,
-            lamda_recon_rep=1e-4 if not hasattr(args, 'recon_repl') else args.recon_repl
+            lamda_recon_rep=1e-4 if not hasattr(args, 'recon_repl') else args.recon_repl,
+            recon_attraction=False if not hasattr(args, 'recon_attraction') else args.recon_attraction
             ####
         ).to(device)
     else:
@@ -99,7 +100,8 @@ def define_autoencoder(args, config, device, generator=False, convE=None):
             c_drop=0.5 if not hasattr(args, 'c_drop') else args.c_drop,
             recon_repulsion=False if not hasattr(args, 'recon_repulsion') else args.recon_repulsion,
             recon_rep_averaged=False if not hasattr(args, 'recon_rep_averaged') else args.recon_rep_averaged,
-            lamda_recon_rep=1e-4 if not hasattr(args, 'recon_repl') else args.recon_repl
+            lamda_recon_rep=1e-4 if not hasattr(args, 'recon_repl') else args.recon_repl,
+            recon_attraction=False if not hasattr(args, 'recon_attraction') else args.recon_attraction
             ####
         ).to(device)
     # -return model

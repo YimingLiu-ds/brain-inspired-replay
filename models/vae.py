@@ -37,7 +37,7 @@ class AutoEncoder(ContinualLearner):
                  #### Determine whether or not to implement class repulsion...
                  repulsion=False, kl_js='js', use_rep_factor=False, rep_factor=1.5, apply_mask=False,
                  contrastive=False, c_temp=0.07, c_drop=0.5, recon_repulsion=False, recon_rep_averaged=False,
-                 lamda_recon_rep=1e-4, recon_attraction=False, **kwargs):
+                 lamda_recon_rep=1e-4, recon_attraction=False, lamda_recon_atr=1e-4, **kwargs):
 
         # Set configurations for setting up the model
         super().__init__()
@@ -91,8 +91,9 @@ class AutoEncoder(ContinualLearner):
         self.lamda_rcl = lamda_rcl     # weight of reconstruction-loss
         self.lamda_vl = lamda_vl       # weight of variational loss
         ####
-        self.lamda_rep = lamda_rep       # weight of repulsion loss
+        self.lamda_rep = lamda_rep       # weight of distribution repulsion loss
         self.lamda_recon_rep = lamda_recon_rep     # weight of recon repulsion loss
+        self.lamda_recon_atr = lamda_recon_atr     # weight of recon attraction loss
         self.contrastive = contrastive
         self.c_temp = c_temp
         self.c_drop = c_drop
@@ -1521,7 +1522,7 @@ class AutoEncoder(ContinualLearner):
                     loss_replay[replay_id] += self.lamda_recon_rep * recon_repL_r[replay_id]
 
                 if self.recon_attraction and (x_atr is not None):
-                    loss_replay[replay_id] += self.lamda_recon_rep * recon_atrL_r[replay_id]
+                    loss_replay[replay_id] += self.lamda_recon_atr * recon_atrL_r[replay_id]
 
                 ####
 

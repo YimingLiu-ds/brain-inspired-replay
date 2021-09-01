@@ -178,7 +178,7 @@ class AutoEncoder(ContinualLearner):
             image_channels=image_channels, final_channels=start_channels, depth=self.depth,
             reducing_layers=reducing_layers, batch_norm=conv_bn, nl=conv_nl, gated=conv_gated,
             output=self.network_output, deconv_type=deconv_type,
-        ) if self.contr_not_hidden else None
+        ) if (self.contr_not_hidden or self.contrastive) else None
 
         ##>----Prior----<##
         # -if using the GMM-prior, add its parameters
@@ -474,7 +474,7 @@ class AutoEncoder(ContinualLearner):
         # return samples as [batch_size]x[channels]x[image_size]x[image_size] tensor, plus requested additional info
         if only_x:
             return X
-        elif self.contr_not_hidden and self.contrastive:
+        elif self.contr_not_hidden or self.contrastive:
             X_imgs = self.convD_contr(X)
             return (X, y_used, task_used, X_imgs)
         else:

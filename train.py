@@ -296,7 +296,8 @@ def train_cl(model, train_datasets, replay_mode="none", scenario="task", rnt=Non
                         batch_size_replay, allowed_classes=allowed_classes, allowed_domains=allowed_domains,
                         only_x=False,
                     )
-                    x_ = x_temp_[3] if args.contr_not_hidden and use_views else x_temp_[0]
+
+                    x_ = x_temp_[3] if (use_views and contrast_replayed) or args.contr_not_hidden else x_temp_[0]
                     task_used = x_temp_[2]
                     #### Create two views by augmenting data...
                     if use_views and contrast_replayed:

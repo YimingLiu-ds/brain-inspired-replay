@@ -4,6 +4,7 @@ import torch
 from torch import nn
 from torch.nn import functional as F
 from utils import get_data_loader
+from itertools import chain
 
 
 class ContinualLearner(nn.Module, metaclass=abc.ABCMeta):
@@ -192,6 +193,11 @@ class ContinualLearner(nn.Module, metaclass=abc.ABCMeta):
         [W]         <dict> estimated parameter-specific contribution to changes in total loss of completed task
         [epsilon]   <float> dampening parameter (to bound [omega] when [p_change] goes to 0)'''
 
+        # Don't perform SI on convE and fcProj layers during contrastive learning...
+        if self.contrastive:
+            for param in chain(self.convE.parameters(), self.fcProj.parameters()):
+                param.requires_grad = False
+
         # Loop over all parameters
         for n, p in self.named_parameters():
             if p.requires_grad:
@@ -211,6 +217,10 @@ class ContinualLearner(nn.Module, metaclass=abc.ABCMeta):
                 # Store these new values in the model
                 self.register_buffer('{}_SI_prev_task'.format(n), p_current)
                 self.register_buffer('{}_SI_omega'.format(n), omega_new)
+
+        if self.contrastive:
+            for param in chain(self.convE.parameters(), self.fcProj.parameters()):
+                param.requires_grad = True
 
 
     def surrogate_loss(self):

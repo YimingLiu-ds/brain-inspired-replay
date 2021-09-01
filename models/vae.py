@@ -36,7 +36,7 @@ class AutoEncoder(ContinualLearner):
                  lamda_pl=0., lamda_rcl=1., lamda_vl=1., lamda_rep=1., 
                  #### Determine whether or not to implement class repulsion...
                  repulsion=False, kl_js='js', use_rep_factor=False, rep_factor=1.5, apply_mask=False,
-                 contrastive=False, c_temp=0.07, c_drop=0.5, recon_repulsion=False, recon_rep_averaged=False,
+                 contrastive=False, c_temp=0.07, c_drop=0.5, contr_not_hidden=False, recon_repulsion=False, recon_rep_averaged=False,
                  lamda_recon_rep=1e-4, recon_attraction=False, lamda_recon_atr=1e-4, **kwargs):
 
         # Set configurations for setting up the model
@@ -68,6 +68,7 @@ class AutoEncoder(ContinualLearner):
         self.recon_repulsion = recon_repulsion
         self.recon_rep_averaged = recon_rep_averaged
         self.recon_attraction = recon_attraction
+        self.contr_not_hidden = contr_not_hidden
         ####
         
         # Optimizer (needs to be set before training starts))
@@ -172,6 +173,12 @@ class AutoEncoder(ContinualLearner):
             reducing_layers=reducing_layers, batch_norm=conv_bn, nl=conv_nl, gated=conv_gated,
             output=self.network_output, deconv_type=deconv_type,
         ) if (not self.hidden) else modules.Identity()
+        
+        self.convD_contr = DeconvLayers(
+            image_channels=image_channels, final_channels=start_channels, depth=self.depth,
+            reducing_layers=reducing_layers, batch_norm=conv_bn, nl=conv_nl, gated=conv_gated,
+            output=self.network_output, deconv_type=deconv_type,
+        ) if self.contr_not_hidden else None
 
         ##>----Prior----<##
         # -if using the GMM-prior, add its parameters
@@ -465,7 +472,13 @@ class AutoEncoder(ContinualLearner):
             X = self.decode(z, gate_input=(task_used if self.dg_type=="task" else y_used) if self.dg_gates else None)
 
         # return samples as [batch_size]x[channels]x[image_size]x[image_size] tensor, plus requested additional info
-        return X if only_x else (X, y_used, task_used)
+        if only_x:
+            return X
+        elif self.contr_not_hidden and self.contrastive:
+            X_imgs = self.convD_contr(X)
+            return (X, y_used, task_used, X_imgs)
+        else:
+            return (X, y_used, task_used)
 
 
 
@@ -1064,7 +1077,7 @@ class AutoEncoder(ContinualLearner):
     def train_a_batch(self, x, y=None, x_=None, y_=None, scores_=None, top_scores_=None, batch_index=None, tasks_=None, rnt=0.5,
                       active_classes=None, task=1, replay_not_hidden=False, freeze_convE=False, batch_size=None, 
                       batch_size_replay=None, task_n=None, use_views=False, 
-                      contrast_current=False, match_cur_replay_aug=False, **kwargs):
+                      contrast_current=False, contrast_replayed=True, **kwargs):
         '''Train model for one batch ([x],[y]), possibly supplemented with replayed data ([x_],[y_]).
 
         [x]                 <tensor> batch of inputs (could be None, in which case only 'replayed' data is used)
@@ -1080,8 +1093,9 @@ class AutoEncoder(ContinualLearner):
         [replay_not_hidden] <bool> provided [x_] are original images, even though other level might be expected'''
         
         if self.contrastive:
-            x_ = torch.cat([x_[0], x_[1]], dim=0) if x_ is not None else None
-            if contrast_current and (not match_cur_replay_aug):
+            if contrast_replayed:
+                x_ = torch.cat([x_[0], x_[1]], dim=0) if x_ is not None else None
+            if contrast_current:
                 x = torch.cat([x[0], x[1]], dim=0) if x is not None else None
 
         # Set model to training-mode
@@ -1162,7 +1176,7 @@ class AutoEncoder(ContinualLearner):
 
         ##--(2)-- REPLAYED DATA --##
         # Set convE to training-mode if contrastive...
-        if self.contrastive and (not contrast_current):
+        if self.contrastive:
             self.convE.train()
         
         mu_2, logvar_2, mu_3, mu_4 = None, None, None, None
@@ -1215,7 +1229,7 @@ class AutoEncoder(ContinualLearner):
                 
                 #### Start of main-section modifications, all of this is new code ####
 
-                if self.contrastive:
+                if self.contrastive and contrast_replayed:
                     proj_z1, proj_z2 = torch.split(proj_z, [batch_size_replay, batch_size_replay], dim=0)
                     proj_z = torch.cat([proj_z1.unsqueeze(1), proj_z2.unsqueeze(1)], dim=1)
                     x_temp_, x_ = x_temp_[:batch_size_replay], x_[:batch_size_replay]
@@ -1455,7 +1469,7 @@ class AutoEncoder(ContinualLearner):
 
                 # Calculate all losses
                 if (not self.repulsion) or (not diff):
-                    if self.contrastive:
+                    if self.contrastive and contrast_replayed:
                         reconL_r[replay_id],variatL_r[replay_id],predL_r[replay_id],distilL_r[replay_id], contrL_r[replay_id], recon_repL_r[replay_id], recon_atrL_r[replay_id] = self.loss_function(
                             x=x_temp_, y=y_[replay_id] if (y_ is not None) else None, x_recon=recon_batch, y_hat=y_hat,
                             scores=scores_[replay_id] if (scores_ is not None) else None, mu=mu, z=z, logvar=logvar,
@@ -1586,7 +1600,6 @@ class AutoEncoder(ContinualLearner):
             for param in self.parameters():
                 param.requires_grad = False
             for param in chain(self.convE.parameters(), self.fcE.parameters(), self.fcProj.parameters()):
-            #for param in chain(self.fcE.parameters(), self.fcProj.parameters()):
                 param.requires_grad = True
     
             #### Update encoder gradients...
@@ -1604,9 +1617,8 @@ class AutoEncoder(ContinualLearner):
             # Take optimization-step
             self.optimizer.step()
             
-            #for param in chain(self.convE.parameters(), self.fcProj.parameters()):
-            #for param in self.fcProj.parameters():
-            #    param.requires_grad = True
+            for param in chain(self.convE.parameters(), self.fcProj.parameters()):
+                param.requires_grad = True
         else:
             # Take optimization-step
             self.optimizer.step()
@@ -1628,6 +1640,6 @@ class AutoEncoder(ContinualLearner):
             'recon_atrL_r': sum(recon_atrL_r).item()/n_replays if (x_ is not None) and (self.recon_attraction) and (x_atr is not None) else 0,
             'pred_r': sum(predL_r).item()/n_replays if x_ is not None else 0,
             'distil_r': sum(distilL_r).item()/n_replays if x_ is not None else 0,
-            'contr_r': sum(contrL_r).item()/n_replays if (x_ is not None) and (self.contrastive) else 0,
+            'contr_r': sum(contrL_r).item()/n_replays if (x_ is not None) and (self.contrastive) and (contrast_replayed) else 0,
             'ewc': ewc_loss.item(), 'si_loss': surrogate_loss.item(),
         }

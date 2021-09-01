@@ -6,14 +6,54 @@ import tqdm
 import copy
 import utils
 from models.cl.continual_learner import ContinualLearner
+import torch.nn as nn
+import torchmetrics
+from torch import Tensor
+from kornia.augmentation import (
+    ColorJitter,
+    RandomChannelShuffle,
+    RandomHorizontalFlip,
+    RandomCrop,
+    RandomGrayscale,
+)
 
-def transform(x):
+#### Added data augemntation for contrastive learning ####
+
+class DataAugmentation(nn.Module):
+    """Module to perform data augmentation using Kornia on torch tensors."""
+
+    def __init__(self) -> None:
+        super().__init__()
+
+        self.transforms = nn.Sequential(
+            RandomHorizontalFlip(p=0.5),
+            RandomChannelShuffle(p=0.75),
+            RandomCrop(size=[24,24], p=0.5),
+            RandomGrayscale(p=0.25),
+        )
+
+        self.jitter = ColorJitter(0.2, 0.2, 0.2, 0.2)
+
+    @torch.no_grad()  # disable gradients for effiency
+    def forward(self, x: Tensor) -> Tensor:
+        mx, mn = torch.max(x, dim=-1)[0], torch.min(x, dim=-1)[0]
+        for i in range(2):
+            mx, mn = torch.max(mx, dim=-1)[0], torch.min(mn, dim=-1)[0]
+        mx, mn = mx[:,None,None,None], mn[:,None,None,None]
+        x = (x - mn) / (mx - mn)
+        x_out = self.transforms(x)
+        #x_out = self.jitter(x_out)
+        return x_out
+
+transform = DataAugmentation() # Batch tensor (image) augmentation
+
+#def transform(x):
     #transformation = tf.Compose([
     #    #tf.RandomHorizontalFlip(),
     #    tf.ColorJitter(0.3, 0.3, 0.3, 0.07),
     #    tf.ToTensor(),])
     #scripted_transforms = torch.jit.script(transformation)
-    return torch.flip(x, [-1])
+#    return torch.flip(x, [-1])
 
 
 def train(model, train_loader, iters, loss_cbs=list(), eval_cbs=list(), save_every=None, m_dir="./store/models",
@@ -88,7 +128,7 @@ def train_cl(model, train_datasets, replay_mode="none", scenario="task", rnt=Non
     #### Should augmented views be created?...
     use_views = args.contrastive
     contrast_current = False
-    match_cur_replay_aug = False
+    contrast_replayed = True
 
     # Should convolutional layers be frozen?
     freeze_convE = (utils.checkattr(args, "freeze_convE") and hasattr(args, "depth") and args.depth>0)
@@ -193,9 +233,13 @@ def train_cl(model, train_datasets, replay_mode="none", scenario="task", rnt=Non
                 y = y-classes_per_task*(task-1) if scenario=="task" else y  #--> ITL: adjust y-targets to 'active range'
                 x, y = x.to(device), y.to(device)                           #--> transfer them to correct device
                 #### Create two views by augmenting data...
-                if use_views and contrast_current and (not match_cur_replay_aug):
+                if use_views and contrast_current:
                     # Return two views...
-                    x = [x, transform(x)]
+                    torch.manual_seed(0)
+                    x1 = transform(x)
+                    torch.manual_seed(1)
+                    x2 = transform(x)
+                    x = [x1, x2]
                 #y = y.expand(1) if len(y.size())==1 else y                 #--> hack for if batch-size is 1
             else:
                 x = y = task_used = None  #--> all tasks are "treated as replay"
@@ -252,13 +296,16 @@ def train_cl(model, train_datasets, replay_mode="none", scenario="task", rnt=Non
                         batch_size_replay, allowed_classes=allowed_classes, allowed_domains=allowed_domains,
                         only_x=False,
                     )
-                    x_ = x_temp_[0]
+                    x_ = x_temp_[3] if args.contr_not_hidden and use_views else x_temp_[0]
                     task_used = x_temp_[2]
-
                     #### Create two views by augmenting data...
-                    if use_views:
+                    if use_views and contrast_replayed:
                         # Return two views...
-                        x_ = [x_, transform(x_)]
+                        torch.manual_seed(0)
+                        x1_ = model.convE(transform(x_))
+                        torch.manual_seed(1)
+                        x2_ = model.convE(transform(x_))
+                        x_ = [x1_, x2_]
 
             #--------------------------------------------OUTPUTS----------------------------------------------------#
 
@@ -333,7 +380,7 @@ def train_cl(model, train_datasets, replay_mode="none", scenario="task", rnt=Non
                                                 ) if rnt is None else rnt, freeze_convE=freeze_convE,
                                                 replay_not_hidden=False if Generative else True, batch_size=batch_size, 
                                                 batch_size_replay=batch_size_replay, task_n=task, use_views=use_views, 
-                                                contrast_current=contrast_current)#, match_cur_replay_aug=match_cur_replay_aug)
+                                                contrast_current=contrast_current, contrast_replayed=contrast_replayed)#, match_cur_replay_aug=match_cur_replay_aug)
 
                 # Update running parameter importance estimates in W
                 if isinstance(model, ContinualLearner) and model.si_c>0:

@@ -9,9 +9,15 @@ This is demonstrated with the Split CIFAR-100 protocol, both for task-incrementa
 
 
 ## Installation & requirements
-The current version of the code has been tested with `Python 3.5.2` on several Linux operating systems with the following versions of PyTorch and Torchvision:
-* `pytorch 1.1.0`
+The current version of the code has been tested with `Python 3.5.2` on both Linux and Windows operating systems with the following versions of PyTorch and Torchvision:
+* `pytorch 1.9.0`
 * `torchvision 0.2.2`
+* `kornia`
+* 'scikit-learn'
+* 'matplotlib'
+* 'visdom'
+* 'torchmetrics'
+* 'scipy'
 
 The versions that were used for other Python-packages are listed in `requirements.txt`.
 
@@ -22,16 +28,9 @@ cd brain-inspired-replay
 ```
 (If downloading the zip-file, extract the files and change into the extracted folder.)
  
-Assuming  Python and pip are set up, the Python-packages used by this code can be installed using:
-```bash
-pip install -r requirements.txt
-```
-However, you might want to install pytorch and torchvision in a slightly different way to ensure compatability with your version of CUDA (see https://pytorch.org/).
+Assuming Python3 is set up, the Python-packages used by this code can be installed into a fresh docker image via the included dockerfile.
 
-Finally, the code in this repository itself does not need to be installed, but a number of scripts should be made executable:
-```bash
-chmod +x main_*.py compare_*.py create_figures.sh
-```
+The required datasets do not need to be explicitly downloaded, this will be done automatically the first time the code is run.
 
 
 ## Demos

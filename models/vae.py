@@ -173,7 +173,7 @@ class AutoEncoder(ContinualLearner):
             reducing_layers=reducing_layers, batch_norm=conv_bn, nl=conv_nl, gated=conv_gated,
             output=self.network_output, deconv_type=deconv_type,
         ) if (not self.hidden) else modules.Identity()
-        
+
         if (self.contr_not_hidden or self.contrastive):
             self.convD_contr = DeconvLayers(
                 image_channels=image_channels, final_channels=start_channels, depth=self.depth,
@@ -1477,14 +1477,14 @@ class AutoEncoder(ContinualLearner):
                             x=x_temp_, y=y_[replay_id] if (y_ is not None) else None, x_recon=recon_batch, y_hat=y_hat,
                             scores=scores_[replay_id] if (scores_ is not None) else None, mu=mu, z=z, logvar=logvar,
                             allowed_classes=active_classes[replay_id] if active_classes is not None else None, proj_z=proj_z, use_views=use_views, x_rep=x_rep,
-                            x_recon_rep=recon_batch_rep, x_atr=x_atr, x_recon_atr=recon_batch_atr, keep_inds=keep_inds
+                            x_recon_rep=recon_batch_rep, x_atr=x_atr, x_recon_atr=recon_batch_atr, keep_inds=keep_inds if top_scores_ is not None else None
                         )
                     else:
                         reconL_r[replay_id],variatL_r[replay_id],predL_r[replay_id],distilL_r[replay_id], contrL_r[replay_id], recon_repL_r[replay_id], recon_atrL_r[replay_id] = self.loss_function(
                             x=x_temp_, y=y_[replay_id] if (y_ is not None) else None, x_recon=recon_batch, y_hat=y_hat,
                             scores=scores_[replay_id] if (scores_ is not None) else None, mu=mu, z=z, logvar=logvar,
                             allowed_classes=active_classes[replay_id] if active_classes is not None else None, proj_z=proj_z, use_views=use_views, x_rep=x_rep,
-                            x_recon_rep=recon_batch_rep, x_atr=x_atr, x_recon_atr=recon_batch_atr, keep_inds=keep_inds
+                            x_recon_rep=recon_batch_rep, x_atr=x_atr, x_recon_atr=recon_batch_atr, keep_inds=keep_inds if top_scores_ is not None else None
                         )
                 elif mu_3 is None:
                     reconL_r[replay_id],variatL_r[replay_id],diffL_r[replay_id],predL_r[replay_id],distilL_r[replay_id],contrL_r[replay_id],recon_repL_r[replay_id], recon_atrL_r[replay_id] = self.loss_function(
@@ -1492,7 +1492,7 @@ class AutoEncoder(ContinualLearner):
                         scores=scores_[replay_id] if (scores_ is not None) else None, mu=mu, z=z, logvar=logvar,
                         allowed_classes=active_classes[replay_id] if active_classes is not None else None,
                         diff=diff, mu_diff=mu_diff, logvar_diff=logvar_diff, mu_2=mu_2, logvar_2=logvar_2, kl_js=self.kl_js,
-                        mu_b=mu_b, logvar_b=logvar_b, keep_inds=keep_inds, similarity=similarity, 
+                        mu_b=mu_b, logvar_b=logvar_b, keep_inds=keep_inds if top_scores_ is not None else None, similarity=similarity, 
                         proj_z=proj_z, use_views=use_views, x_rep=x_rep, x_recon_rep=recon_batch_rep, x_atr=x_atr, x_recon_atr=recon_batch_atr)
 
                 elif mu_4 is None:
@@ -1502,7 +1502,7 @@ class AutoEncoder(ContinualLearner):
                         allowed_classes=active_classes[replay_id] if active_classes is not None else None,
                         diff=diff, mu_diff=mu_diff, logvar_diff=logvar_diff, mu_2=mu_2, logvar_2=logvar_2, 
                         mu_3=mu_3, logvar_3=logvar_3, kl_js=self.kl_js, use_rep_factor=self.use_rep_factor, proj_z=proj_z, use_views=use_views, x_rep=x_rep,
-                        x_recon_rep=recon_batch_rep, x_atr=x_atr, x_recon_atr=recon_batch_atr, keep_inds=keep_inds
+                        x_recon_rep=recon_batch_rep, x_atr=x_atr, x_recon_atr=recon_batch_atr, keep_inds=keep_inds if top_scores_ is not None else None
                     )
                 else:
                     reconL_r[replay_id],variatL_r[replay_id],diffL_r[replay_id],diffL_2_r[replay_id],diffL_3_r[replay_id],predL_r[replay_id],distilL_r[replay_id],contrL_r[replay_id],recon_repL_r[replay_id], recon_atrL_r[replay_id] = self.loss_function(

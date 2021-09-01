@@ -173,7 +173,7 @@ class AutoEncoder(ContinualLearner):
             reducing_layers=reducing_layers, batch_norm=conv_bn, nl=conv_nl, gated=conv_gated,
             output=self.network_output, deconv_type=deconv_type,
         ) if (not self.hidden) else modules.Identity()
-        
+
         self.convD_contr = DeconvLayers(
             image_channels=image_channels, final_channels=start_channels, depth=self.depth,
             reducing_layers=reducing_layers, batch_norm=conv_bn, nl=conv_nl, gated=conv_gated,
@@ -264,9 +264,9 @@ class AutoEncoder(ContinualLearner):
         hE = self.fcE(image_features)
         ######
         if self.contrastive and (not current):
+            # Drop-out random nodes...
             proj_z = F.normalize(self.fcProj(F.dropout(hE, p=self.c_drop)), dim=1)
             #proj_z = F.normalize(self.fcProj(image_features), dim=1)
-            #if not current:
             hE = hE[:batch_size]
         else:
             proj_z = None
@@ -1182,6 +1182,7 @@ class AutoEncoder(ContinualLearner):
         if self.contrastive:
             self.convE.train()
         
+        fixed_params = False
         mu_2, logvar_2, mu_3, mu_4 = None, None, None, None
         mu_diff, logvar_diff, x_rep, recon_batch_rep, x_atr, recon_batch_atr = None, None, None, None, None, None
 
@@ -1548,7 +1549,8 @@ class AutoEncoder(ContinualLearner):
                     weighted_replay_loss_this_task = (1-rnt) * loss_replay[replay_id] / n_replays
                     #### Before optimisation step, set requires_grad = False for encoder &
                     #### projection head...
-                    if self.contrastive:
+                    if self.contrastive and fixed_params is False:
+                        fixed_params = True
                         for param in self.parameters():
                             param.requires_grad = True
                         for param in chain(self.convE.parameters(), self.fcProj.parameters()):
@@ -1571,7 +1573,8 @@ class AutoEncoder(ContinualLearner):
 
         ##--(3)-- ALLOCATION LOSSES --##
         
-        if self.contrastive:
+        if self.contrastive and fixed_params is False:
+            fixed_params = True
             for param in self.parameters():
                 param.requires_grad = True
             for param in chain(self.convE.parameters(), self.fcProj.parameters()):
@@ -1592,7 +1595,8 @@ class AutoEncoder(ContinualLearner):
         if (self.mask_dict is None) or (x_ is None):
             #### Before optimisation step, set requires_grad = False for encoder &
             #### projection head...
-            if self.contrastive:
+            if self.contrastive and fixed_params is False:
+                fixed_params = True
                 for param in self.parameters():
                     param.requires_grad = True
                 for param in chain(self.convE.parameters(), self.fcProj.parameters()):

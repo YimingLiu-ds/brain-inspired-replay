@@ -383,8 +383,8 @@ def train_cl(model, train_datasets, replay_mode="none", scenario="task", rnt=Non
                                                 ) if rnt is None else rnt, freeze_convE=freeze_convE,
                                                 replay_not_hidden=False if Generative else True, batch_size=batch_size, 
                                                 batch_size_replay=batch_size_replay, task_n=task, use_views=use_views, 
-                                                contrast_current=contrast_current, contrast_replayed=contrast_replayed)#, match_cur_replay_aug=match_cur_replay_aug)
-                
+                                                contrast_current=contrast_current, contrast_replayed=contrast_replayed)
+
                 if args.contrastive:
                     for n, param in model.named_parameters():
                         param.requires_grad = True

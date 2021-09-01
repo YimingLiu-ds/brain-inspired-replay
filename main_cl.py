@@ -136,7 +136,6 @@ def run(args, verbose=False):
             #    param.requires_grad = True
     
         model.E_optim_list = [
-            #{'params': chain(model.fcE.parameters(), model.fcProj.parameters()), 'lr': args.contr_lr},
             {'params': chain(model.convE.parameters(), model.fcE.parameters(), model.fcProj.parameters()), 'lr': args.contr_lr},
         ]
         print(' Contrastive LR =', args.contr_lr)

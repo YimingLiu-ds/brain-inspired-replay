@@ -173,12 +173,13 @@ class AutoEncoder(ContinualLearner):
             reducing_layers=reducing_layers, batch_norm=conv_bn, nl=conv_nl, gated=conv_gated,
             output=self.network_output, deconv_type=deconv_type,
         ) if (not self.hidden) else modules.Identity()
-
-        self.convD_contr = DeconvLayers(
-            image_channels=image_channels, final_channels=start_channels, depth=self.depth,
-            reducing_layers=reducing_layers, batch_norm=conv_bn, nl=conv_nl, gated=conv_gated,
-            output=self.network_output, deconv_type=deconv_type,
-        ) if (self.contr_not_hidden or self.contrastive) else None
+        
+        if (self.contr_not_hidden or self.contrastive):
+            self.convD_contr = DeconvLayers(
+                image_channels=image_channels, final_channels=start_channels, depth=self.depth,
+                reducing_layers=reducing_layers, batch_norm=conv_bn, nl=conv_nl, gated=conv_gated,
+                output=self.network_output, deconv_type=deconv_type,
+            )
 
         ##>----Prior----<##
         # -if using the GMM-prior, add its parameters
@@ -814,13 +815,17 @@ class AutoEncoder(ContinualLearner):
         reconL = lf.weighted_average(reconL, weights=batch_weights, dim=0)       # -> average over batch
         
         # Calculate reconstruction repulsion loss...
-        if self.recon_repulsion and (x_rep is not None):
+        if self.recon_repulsion and (x_rep is not None) and (len(keep_inds) > 0):
             # Remove samples for which examples of the competing class could not be found...
-            if (keep_inds is not None) and (len(keep_inds)!=list(x_rep.shape)[0]):
-                x_rep, x_recon_rep = x_rep[keep_inds], x_recon_rep[keep_inds]
+            bsz = list(x_recon_rep.shape)[0]
+            if (keep_inds is not None) and (len(keep_inds)!=list(x_rep.view(bsz, -1).shape)[0]):
+                x_rep, x_recon_rep = x_rep.view(bsz, -1)[keep_inds], x_recon_rep.view(bsz, -1)[keep_inds]
+            else:
+                x_rep, x_recon_rep = x_rep.view(bsz, -1), x_recon_rep.view(bsz, -1)
+
             # Recon repulsion loss...
-            recon_repL = torch.pow(self.calculate_recon_loss(x=x_rep.view(batch_size, -1), average=True,
-                                           x_recon=x_recon_rep.view(batch_size, -1)), -1)
+            recon_repL = torch.pow(self.calculate_recon_loss(x=x_rep, average=True,
+                                           x_recon=x_recon_rep), -1)
             # Average over the batch...
             recon_repL = lf.weighted_average(recon_repL, weights=batch_weights, dim=0)
         else:
@@ -1241,7 +1246,7 @@ class AutoEncoder(ContinualLearner):
                 if top_scores_ is not None:
                     diff = True
                     rep2, averaged, cont = True, False, False
-                    img_exag = False
+                    keep_inds = None
 
                     #specific_classes = top_scores_.to('cpu').numpy()
                     #act_sc_size = specific_classes.shape
@@ -1299,8 +1304,8 @@ class AutoEncoder(ContinualLearner):
                         if samples_to_use is not None:
                             mu_diff = mu[samples_to_use]
                             logvar_diff = logvar[samples_to_use]
-                            x_comp = x_temp_[samples_to_use]
-                            specific_classes_0 = specific_classes_0[samples_to_use]
+                            x_comp = x_temp_[samples_to_use] if not (self.recon_repulsion or self.recon_attraction) else x_temp_
+                            specific_classes_0 = specific_classes_0[samples_to_use] if not (self.recon_repulsion or self.recon_attraction) else specific_classes_0
                             specific_classes_1 = specific_classes_1[samples_to_use]
                             if not rep2:
                                 if (samples_to_use_2 is not None) and (samples_to_use_2.nelement() > 0):
@@ -1327,15 +1332,8 @@ class AutoEncoder(ContinualLearner):
 
                     uniq_sc_0 = torch.unique(specific_classes_0)
                     inds_sc_0 = []
-                    
-                    #### Image exaggeration
-                    if img_exag and (uniq_sc_0.nelement() > 0):
-                        mean_x_ = []
-                        for i, uniq_c in enumerate(uniq_sc_0):
-                            inds = torch.where(specific_classes_0==uniq_sc_0[i])[0]
-                            mean_x_.append(torch.mean(x_temp_[inds], dim=0))
-                        orig_shape = tuple(mean_x_[0].shape)
-                            
+
+
                     if rep2 and ((samples_to_use is None) or (samples_to_use.nelement() > 0)):
                         mean_mu_0 = []
                         mean_logvar_0 = []
@@ -1375,12 +1373,13 @@ class AutoEncoder(ContinualLearner):
                                     keep_inds.append(1)
                                 return inds_sc_0[uniq_ind]
                             
-                            def map_x(a, uniq):
+                            def map_x(a, uniq, rep=True):
                                 uniq_ind = torch.where(uniq==a)[0]
                                 if uniq_ind.nelement() < 1:
-                                    keep_inds.append(0)
+                                    if rep==True:
+                                        keep_inds.append(0)
                                     uniq_ind = torch.tensor(np.random.choice(np.arange(uniq.nelement()), 1)[0], device=self._device())
-                                else:
+                                elif rep==True:
                                     keep_inds.append(1)
                                 return mean_x[uniq_ind]
     
@@ -1420,7 +1419,7 @@ class AutoEncoder(ContinualLearner):
                                     # Find indices of competing classes & create batch of competing samples, x_atr...
                                     if self.recon_rep_averaged:
                                         # Apply reconstruction repulsion loss to the average feature vector across all samples from the competing class...
-                                        x_atr = torch.cat(list(map(functools.partial(map_x, uniq=uniq_sc_0), specific_classes_0)), dim=0)
+                                        x_atr = torch.cat(list(map(functools.partial(map_x, uniq=uniq_sc_0, rep=False), specific_classes_0)), dim=0)
                                     else:
                                         # Apply reconstruction repulsion loss to random samples from the competing class...
                                         inds_0 = torch.tensor(list(map(functools.partial(map_inds, uniq=uniq_sc_0), specific_classes_0)), device=self._device())

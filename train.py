@@ -44,6 +44,7 @@ class DataAugmentation(nn.Module):
         x = (x - mn) / (mx - mn)
         x_out = self.transforms(x)
         #x_out = self.jitter(x_out)
+        x_out = (x_out * (mx - mn)) + mn
         return x_out
 
 transform = DataAugmentation() # Batch tensor (image) augmentation

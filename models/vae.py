@@ -92,7 +92,7 @@ class AutoEncoder(ContinualLearner):
         self.lamda_rcl = lamda_rcl     # weight of reconstruction-loss
         self.lamda_vl = lamda_vl       # weight of variational loss
         ####
-        self.lamda_rep = lamda_rep       # weight of distribution repulsion loss
+        self.lamda_rep = lamda_rep                 # weight of distribution repulsion loss
         self.lamda_recon_rep = lamda_recon_rep     # weight of recon repulsion loss
         self.lamda_recon_atr = lamda_recon_atr     # weight of recon attraction loss
         self.contrastive = contrastive
@@ -690,8 +690,6 @@ class AutoEncoder(ContinualLearner):
             raise ValueError('Num of labels does not match num of features!!')
 
         mask = torch.matmul(y, y.T).to(self._device()) if use_scores and (scores is not None) else torch.eq(y, y.T).float().to(self._device())
-        #mask_max, _ = torch.max(mask, dim=1)
-        #mask /= mask_max.view(-1,1)
         
         contr_count = proj_z.shape[1]
         contr_feature = torch.cat(torch.unbind(proj_z, dim=1), dim=0)
@@ -707,14 +705,12 @@ class AutoEncoder(ContinualLearner):
 
         # Tile mask
         mask = mask.repeat(anchor_count, contr_count)
-        #distil_mask = 1 / (distil_mask.repeat(anchor_count, contr_count) + 1e-5) if distil_mask is not None else None
 
         # Mask-out self-contrast cases
         logits_mask = torch.scatter(torch.ones_like(mask), 1,
             torch.arange(batch_size * anchor_count).view(-1, 1).to(self._device()), 0)
 
         mask = mask * logits_mask
-        #distil_mask = distil_mask * logits_mask if distil_mask is not None else None
         
         ## Hard sampling (a)...
         if hard_sampling:
@@ -745,7 +741,6 @@ class AutoEncoder(ContinualLearner):
 
         # Compute mean of log-likelihood over positive: sum[log(exp/sum(exp))] / |P(i)|
         mean_log_prob_pos = (mask * log_prob).sum(1) / mask.sum(1)
-        #mean_log_prob_pos = (mask * log_prob).sum(1) / mask.sum(1) if distil_mask is None else (distil_mask * log_prob).sum(1) / mask.sum(1)
 
         # Contrastive loss...
         contrL = - (temp / base_temp) * mean_log_prob_pos
@@ -1235,7 +1230,8 @@ class AutoEncoder(ContinualLearner):
                 gate_input = (tasks_ if self.dg_type=="task" else y_predicted) if self.dg_gates else None
                 recon_batch, y_hat_all, mu, logvar, z, proj_z = self(x_temp_, gate_input=gate_input, full=True, use_views=use_views, 
                                                                      batch_size=batch_size_replay, current=False)
-                
+
+
                 #### Start of main-section modifications, all of this is new code ####
 
                 if self.contrastive and contrast_replayed:
@@ -1245,20 +1241,10 @@ class AutoEncoder(ContinualLearner):
 
                 if top_scores_ is not None:
                     diff = True
-                    rep2, averaged, cont = True, False, False
-                    keep_inds = None
+                    rep2, averaged = True, False
+                    keep_inds, similarity = None, None
 
-                    #specific_classes = top_scores_.to('cpu').numpy()
-                    #act_sc_size = specific_classes.shape
-                    act_sc_size = list(top_scores_.shape)
-                    
-                    if self.apply_mask:
-                        if task<4 or task==7:
-                            sc_size = (act_sc_size[0],2)
-                        else:
-                            sc_size = act_sc_size
-                    else:
-                        sc_size = act_sc_size
+                    sc_size = act_sc_size = list(top_scores_.shape)
 
                     specific_classes_0 = torch.reshape(top_scores_[:,0], (-1,))
                     specific_classes_1 = torch.reshape(top_scores_[:,1], (-1,))
@@ -1266,10 +1252,7 @@ class AutoEncoder(ContinualLearner):
                     specific_classes_3 = torch.reshape(top_scores_[:,3], (-1,)) if (sc_size[1] > 3) else None
                     
                     if self.use_rep_factor:
-                        if self.apply_mask:
-                            rep_f = 1e8 if (task<4 or task==7 or task>8) else self.rep_factor
-                        else:
-                            rep_f = self.rep_factor
+                        rep_f = self.rep_factor
                         
                         # Check probabilities...
                         y_probabilities = F.softmax(scores_[0], dim=1)
@@ -1288,17 +1271,6 @@ class AutoEncoder(ContinualLearner):
                     else:
                         samples_to_use = None
 
-                    if cont:
-                        # Check probabilities...
-                        y_probabilities = F.softmax(scores_[0], dim=1)
-                        sc_0 = torch.reshape(specific_classes_0, (-1,1)).expand(-1, sc_size[0])
-                        y_probs = torch.gather(y_probabilities, 1, sc_0)[:, 0]
-                        sc_1 = torch.reshape(specific_classes_1, (-1,1)).expand(-1, sc_size[0])
-                        y_probs_1 = torch.gather(y_probabilities, 1, sc_1)[:, 0]
-                        similarity = (y_probs_1 + 1e-3) / (y_probs + 1e-3)
-                        similarity.detach()
-                    else:
-                        similarity = None
 
                     if (samples_to_use is None) or (samples_to_use.nelement() > 0):
                         if samples_to_use is not None:
@@ -1430,6 +1402,7 @@ class AutoEncoder(ContinualLearner):
 
             #### End of main-section modifications ####
 
+
             # Loop to perform each replay
             for replay_id in range(n_replays):
                 #---> NOTE: pre-processing is sometimes needed for 'hidden' (as only generated replay comes as features)
@@ -1526,7 +1499,6 @@ class AutoEncoder(ContinualLearner):
                 if self.repulsion and diff:
                     if mu_3 is None:
                         loss_replay[replay_id] += self.lamda_rep * diffL_r[replay_id]
-                        #loss_replay[replay_id] += self.lamda_rep * diffL_2_r[replay_id]
                     elif mu_4 is None:
                         loss_replay[replay_id] += self.lamda_rep * diffL_r[replay_id]
                         loss_replay[replay_id] += self.lamda_rep * diffL_2_r[replay_id]

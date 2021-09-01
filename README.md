@@ -71,8 +71,6 @@ To run specific methods, use the following:
 
 For information on further options: `./main_cl.py -h`.
 
-PyTorch-implementations for several methods relying on stored data (Experience Replay, iCaRL and A-GEM), as well as for additional metrics (FWT, BWT, forgetting, intransigence), can be found here: <https://github.com/GMvandeVen/continual-learning>.
-
 
 ## On-the-fly plots during training
 With this code it is possible to track progress during training with on-the-fly plots. This feature requires `visdom`.

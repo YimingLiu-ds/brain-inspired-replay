@@ -1,11 +1,6 @@
 # Research Project:
-## Exploring the application of brain-inspired memory exaggeration to a state-of-the-art continual learning model
-Adaptions brain-inpsired adaptions to the PyTorch implementation of the continual learning experiments with deep neural networks described in the 
-following paper:
-* Brain-inspired replay for continual learning with artificial neural networks: https://www.nature.com/articles/s41467-020-17866-2
-
-This paper proposes a new, brain-inspired version of generative replay that can scale to continual learning problems with natural images as inputs.
-This is demonstrated with the Split CIFAR-100 protocol, both for task-incremental learning and for class-incremental learning.
+## Exploring the application of brain-inspired feature exaggeration to a state-of-the-art continual learning model
+Brain-inpsired adaptions to the PyTorch implementation of the continual learning experiments with deep neural networks proposed by Van de Ven et al.
 
 
 ## Installation & requirements
@@ -13,17 +8,17 @@ The current version of the code has been tested with `Python 3.5.2` on both Linu
 * `pytorch 1.9.0`
 * `torchvision 0.2.2`
 * `kornia`
-* 'scikit-learn'
-* 'matplotlib'
-* 'visdom'
-* 'torchmetrics'
-* 'scipy'
+* `scikit-learn`
+* `matplotlib`
+* `visdom`
+* `torchmetrics`
+* `scipy`
 
 The versions that were used for other Python-packages are listed in `requirements.txt`.
 
 To use the code, download the repository and change into it:
 ```bash
-git clone https://github.com/GMvandeVen/brain-inspired-replay.git
+git clone https://github.com/jackmillichamp/brain-inspired-replay.git
 cd brain-inspired-replay
 ```
 (If downloading the zip-file, extract the files and change into the extracted folder.)
@@ -71,12 +66,7 @@ Using `main_cl.py`, it is possible to run custom individual experiments. The mai
 - `--tasks`: how many tasks?
 
 To run specific methods, use the following:
-- Context-dependent-Gating (XdG): `./main_cl.py --xdg --xdg-prop=0.8`
-- Elastic Weight Consolidation (EWC): `./main_cl.py --ewc --lambda=5000`
-- Online EWC:  `./main_cl.py --ewc --online --lambda=5000 --gamma=1`
 - Synaptic Intelligenc (SI): `./main_cl.py --si --c=0.1`
-- Learning without Forgetting (LwF): `./main_cl.py --replay=current --distill`
-- Generative Replay (GR): `./main_cl.py --replay=generative`
 - Brain-Inspired Replay (BI-R): `./main_cl.py --replay=generative --brain-inspired`
 
 For information on further options: `./main_cl.py -h`.

@@ -43,7 +43,6 @@ class DataAugmentation(nn.Module):
         mx, mn = mx[:,None,None,None], mn[:,None,None,None]
         x = (x - mn) / (mx - mn)
         x_out = self.transforms(x)
-        #x_out = self.jitter(x_out)
         x_out = (x_out * (mx - mn)) + mn
         return x_out
 
@@ -307,8 +306,9 @@ def train_cl(model, train_datasets, replay_mode="none", scenario="task", rnt=Non
                     #### Create two views by augmenting data...
                     if (use_views and contrast_replayed) or args.contr_not_hidden:
                         # Return two views...
-                        torch.manual_seed(0)
-                        x1_ = model.convE(transform(x_))
+                        #torch.manual_seed(0)
+                        #x1_ = model.convE(transform(x_))
+                        x1_ = x_temp_[0]
                         torch.manual_seed(1)
                         x2_ = model.convE(transform(x_))
                         x_ = [x1_, x2_]

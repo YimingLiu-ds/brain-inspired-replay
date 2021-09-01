@@ -16,6 +16,7 @@ from kornia.augmentation import (
     RandomCrop,
     RandomGrayscale,
 )
+from itertools import chain
 
 #### Added data augemntation for contrastive learning ####
 
@@ -143,6 +144,7 @@ def train_cl(model, train_datasets, replay_mode="none", scenario="task", rnt=Non
     # Initiate indicators for replay (no replay for 1st task)
     Generative = Current = Offline_TaskIL = False
     previous_model = None
+
 
     # Register starting param-values (needed for "intelligent synapses").
     if isinstance(model, ContinualLearner) and model.si_c>0:
@@ -382,6 +384,12 @@ def train_cl(model, train_datasets, replay_mode="none", scenario="task", rnt=Non
                                                 replay_not_hidden=False if Generative else True, batch_size=batch_size, 
                                                 batch_size_replay=batch_size_replay, task_n=task, use_views=use_views, 
                                                 contrast_current=contrast_current, contrast_replayed=contrast_replayed)#, match_cur_replay_aug=match_cur_replay_aug)
+                
+                if args.contrastive:
+                    for n, param in model.named_parameters():
+                        param.requires_grad = True
+                    for n, param in chain(model.convE.named_parameters(), model.fcProj.named_parameters()):
+                        param.requires_grad = False
 
                 # Update running parameter importance estimates in W
                 if isinstance(model, ContinualLearner) and model.si_c>0:

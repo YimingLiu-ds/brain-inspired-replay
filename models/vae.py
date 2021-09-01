@@ -1098,9 +1098,12 @@ class AutoEncoder(ContinualLearner):
             if contrast_current:
                 x = torch.cat([x[0], x[1]], dim=0) if x is not None else None
 
+            for param in chain(self.convE.parameters(), self.fcProj.parameters()):
+                param.requires_grad = True
+
         # Set model to training-mode
         self.train()
-        if (freeze_convE) and (not self.contrastive):
+        if (freeze_convE) and (not (self.contrastive and contrast_current)):
             # - if conv-layers are frozen, they shoud be set to eval() to prevent batch-norm layers from changing
             self.convE.eval()
 
@@ -1567,6 +1570,12 @@ class AutoEncoder(ContinualLearner):
                 loss_total_contr = loss_replay_contr
 
         ##--(3)-- ALLOCATION LOSSES --##
+        
+        if self.contrastive:
+            for param in self.parameters():
+                param.requires_grad = True
+            for param in chain(self.convE.parameters(), self.fcProj.parameters()):
+                param.requires_grad = False
 
         # Add SI-loss (Zenke et al., 2017)
         surrogate_loss = self.surrogate_loss()
@@ -1617,8 +1626,8 @@ class AutoEncoder(ContinualLearner):
             # Take optimization-step
             self.optimizer.step()
             
-            for param in chain(self.convE.parameters(), self.fcProj.parameters()):
-                param.requires_grad = True
+            #for param in chain(self.convE.parameters(), self.fcProj.parameters()):
+            #    param.requires_grad = True
         else:
             # Take optimization-step
             self.optimizer.step()

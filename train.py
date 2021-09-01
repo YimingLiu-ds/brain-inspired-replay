@@ -300,15 +300,18 @@ def train_cl(model, train_datasets, replay_mode="none", scenario="task", rnt=Non
                     )
 
                     x_ = x_temp_[3] if (use_views and contrast_replayed) or args.contr_not_hidden else x_temp_[0]
+
                     task_used = x_temp_[2]
+
                     #### Create two views by augmenting data...
-                    if use_views and contrast_replayed:
+                    if (use_views and contrast_replayed) or args.contr_not_hidden:
                         # Return two views...
                         torch.manual_seed(0)
                         x1_ = model.convE(transform(x_))
                         torch.manual_seed(1)
                         x2_ = model.convE(transform(x_))
                         x_ = [x1_, x2_]
+
 
             #--------------------------------------------OUTPUTS----------------------------------------------------#
 
@@ -317,7 +320,7 @@ def train_cl(model, train_datasets, replay_mode="none", scenario="task", rnt=Non
                 if scenario in ("domain", "class") and previous_model.mask_dict is None:
                     # -if replay does not need to be evaluated for each task (ie, not Task-IL and no task-specific mask)
                     with torch.no_grad():
-                        all_scores_ = previous_model.classify(x_ if not use_views else x_[0], not_hidden=False if Generative else True)
+                        all_scores_ = previous_model.classify(x_ if not (use_views or args.contr_not_hidden) else x_[0], not_hidden=False if Generative else True)
                     scores_ = all_scores_[:, :(classes_per_task*(task-1))] if (
                             scenario=="class"
                     ) else all_scores_ # -> when scenario=="class", zero probs will be added in [loss_fn_kd]-function

@@ -130,7 +130,7 @@ class AutoEncoder(ContinualLearner):
                        excit_buffer=excit_buffer, gated=fc_gated)
         ###### Can add extra layers here ######
         if self.contrastive:
-            self.fcProj = MLP(size_per_layer=[2000,2000,100], batch_norm=False, nl='relu', output='none') #, final_norm=True)
+            self.fcProj = MLP(size_per_layer=[2000,100], batch_norm=False, nl='relu', output='none') #, final_norm=True)
             #self.fcProj = MLP(size_per_layer=[2000,100], batch_norm=False, nl='relu', output='none')
 
         # to z
@@ -266,7 +266,6 @@ class AutoEncoder(ContinualLearner):
         if self.contrastive and (not current):
             # Drop-out random nodes...
             proj_z = F.normalize(self.fcProj(F.dropout(hE, p=self.c_drop)), dim=1)
-            #proj_z = F.normalize(self.fcProj(image_features), dim=1)
             hE = hE[:batch_size]
         else:
             proj_z = None
@@ -749,7 +748,7 @@ class AutoEncoder(ContinualLearner):
 
         # Contrastive loss...
         contrL = - (temp / base_temp) * mean_log_prob_pos
-        return contrL.view(anchor_count, batch_size).mean() #abs()
+        return contrL.view(anchor_count, batch_size).mean()
     
     def calculate_overlap_loss(self, mu_1, logvar_1, mu_2, logvar_2):
         '''Calculate difference loss for each element in the batch.
@@ -1098,7 +1097,8 @@ class AutoEncoder(ContinualLearner):
             if contrast_current:
                 x = torch.cat([x[0], x[1]], dim=0) if x is not None else None
 
-            for param in chain(self.convE.parameters(), self.fcProj.parameters()):
+            #for param in chain(self.convE.parameters(), self.fcProj.parameters()):
+            for param in self.fcProj.parameters():
                 param.requires_grad = True
 
         # Set model to training-mode
@@ -1179,8 +1179,8 @@ class AutoEncoder(ContinualLearner):
 
         ##--(2)-- REPLAYED DATA --##
         # Set convE to training-mode if contrastive...
-        if self.contrastive:
-            self.convE.train()
+        #if self.contrastive:
+        #    self.convE.train()
         
         fixed_params = False
         mu_2, logvar_2, mu_3, mu_4 = None, None, None, None
@@ -1478,14 +1478,14 @@ class AutoEncoder(ContinualLearner):
                             x=x_temp_, y=y_[replay_id] if (y_ is not None) else None, x_recon=recon_batch, y_hat=y_hat,
                             scores=scores_[replay_id] if (scores_ is not None) else None, mu=mu, z=z, logvar=logvar,
                             allowed_classes=active_classes[replay_id] if active_classes is not None else None, proj_z=proj_z, use_views=use_views, x_rep=x_rep,
-                            x_recon_rep=recon_batch_rep, x_atr=x_atr, x_recon_atr=recon_batch_atr
+                            x_recon_rep=recon_batch_rep, x_atr=x_atr, x_recon_atr=recon_batch_atr, keep_inds=keep_inds
                         )
                     else:
                         reconL_r[replay_id],variatL_r[replay_id],predL_r[replay_id],distilL_r[replay_id], contrL_r[replay_id], recon_repL_r[replay_id], recon_atrL_r[replay_id] = self.loss_function(
                             x=x_temp_, y=y_[replay_id] if (y_ is not None) else None, x_recon=recon_batch, y_hat=y_hat,
                             scores=scores_[replay_id] if (scores_ is not None) else None, mu=mu, z=z, logvar=logvar,
                             allowed_classes=active_classes[replay_id] if active_classes is not None else None, proj_z=proj_z, use_views=use_views, x_rep=x_rep,
-                            x_recon_rep=recon_batch_rep, x_atr=x_atr, x_recon_atr=recon_batch_atr
+                            x_recon_rep=recon_batch_rep, x_atr=x_atr, x_recon_atr=recon_batch_atr, keep_inds=keep_inds
                         )
                 elif mu_3 is None:
                     reconL_r[replay_id],variatL_r[replay_id],diffL_r[replay_id],predL_r[replay_id],distilL_r[replay_id],contrL_r[replay_id],recon_repL_r[replay_id], recon_atrL_r[replay_id] = self.loss_function(
@@ -1503,7 +1503,7 @@ class AutoEncoder(ContinualLearner):
                         allowed_classes=active_classes[replay_id] if active_classes is not None else None,
                         diff=diff, mu_diff=mu_diff, logvar_diff=logvar_diff, mu_2=mu_2, logvar_2=logvar_2, 
                         mu_3=mu_3, logvar_3=logvar_3, kl_js=self.kl_js, use_rep_factor=self.use_rep_factor, proj_z=proj_z, use_views=use_views, x_rep=x_rep,
-                        x_recon_rep=recon_batch_rep, x_atr=x_atr, x_recon_atr=recon_batch_atr
+                        x_recon_rep=recon_batch_rep, x_atr=x_atr, x_recon_atr=recon_batch_atr, keep_inds=keep_inds
                     )
                 else:
                     reconL_r[replay_id],variatL_r[replay_id],diffL_r[replay_id],diffL_2_r[replay_id],diffL_3_r[replay_id],predL_r[replay_id],distilL_r[replay_id],contrL_r[replay_id],recon_repL_r[replay_id], recon_atrL_r[replay_id] = self.loss_function(
@@ -1512,7 +1512,7 @@ class AutoEncoder(ContinualLearner):
                         allowed_classes=active_classes[replay_id] if active_classes is not None else None,
                         diff=diff, mu_diff=mu_diff, logvar_diff=logvar_diff, mu_2=mu_2, logvar_2=logvar_2, 
                         mu_3=mu_3, logvar_3=logvar_3, mu_4=mu_4, logvar_4=logvar_4, kl_js=self.kl_js, use_rep_factor=self.use_rep_factor,
-                        proj_z=proj_z, use_views=use_views, x_rep=x_rep, x_recon_rep=recon_batch_rep, x_recon_atr=recon_batch_atr
+                        proj_z=proj_z, use_views=use_views, x_rep=x_rep, x_recon_rep=recon_batch_rep, x_recon_atr=recon_batch_atr, keep_inds=keep_inds
                     )
 
 
@@ -1612,7 +1612,8 @@ class AutoEncoder(ContinualLearner):
         if self.contrastive and (loss_total_contr is not None):
             for param in self.parameters():
                 param.requires_grad = False
-            for param in chain(self.convE.parameters(), self.fcE.parameters(), self.fcProj.parameters()):
+            #for param in chain(self.convE.parameters(), self.fcE.parameters(), self.fcProj.parameters()):
+            for param in chain(self.fcE.parameters(), self.fcProj.parameters()):
                 param.requires_grad = True
     
             #### Update encoder gradients...

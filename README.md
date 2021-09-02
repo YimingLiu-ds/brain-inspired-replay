@@ -14,7 +14,6 @@ The current version of the code has been tested with `Python 3.5.2` on both Linu
 * `torchmetrics`
 * `scipy`
 
-The versions that were used for other Python-packages are listed in `requirements.txt`.
 
 To use the code, download the repository and change into it:
 ```bash

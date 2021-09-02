@@ -382,7 +382,7 @@ def run(args, verbose=False):
             "classes" if args.scenario=="class" else "tasks", average_precs
         ))
     # -write out to text file
-    output_file = open("{}/{}bsz {}rbsz {}iters {}ctemp contr-{} {}clr {}drop {}recrep {}rec-lam {}aver {}recatr-lam repf-{}-{} distrep-{} kljs-{} {}dist-lam {}-nhidden {}-hard {}-csocres.txt".format(\
+    output_file = open("{}/{}bsz {}rbsz {}iters {}ctemp contr-{} {}clr {}drop {}recrep {}rec-lam {}aver {}recatr-lam repf-{}-{} distrep-{} {} {}dist-lam {}-nhid h{} s{}.txt".format(\
                                             args.r_dir, args.batch, args.batch_replay, args.iters, args.c_temp, args.contrastive, \
                                             args.contr_lr, args.c_drop, args.recon_repulsion, args.recon_repl, args.recon_rep_averaged,\
                                             args.recon_atrl, args.use_rep_factor, args.rep_factor, args.repulsion, args.kl_js, \

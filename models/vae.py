@@ -37,7 +37,7 @@ class AutoEncoder(ContinualLearner):
                  #### Determine whether or not to implement class repulsion...
                  repulsion=False, kl_js='js', use_rep_factor=False, rep_factor=1.5, apply_mask=False,
                  contrastive=False, c_temp=0.07, c_drop=0.5, contr_not_hidden=False, recon_repulsion=False, recon_rep_averaged=False,
-                 lamda_recon_rep=1e-4, recon_attraction=False, lamda_recon_atr=1e-4, **kwargs):
+                 lamda_recon_rep=1e-4, recon_attraction=False, lamda_recon_atr=1e-4, contr_scores=False, contr_hard=False, **kwargs):
 
         # Set configurations for setting up the model
         super().__init__()
@@ -69,6 +69,8 @@ class AutoEncoder(ContinualLearner):
         self.recon_rep_averaged = recon_rep_averaged
         self.recon_attraction = recon_attraction
         self.contr_not_hidden = contr_not_hidden
+        self.contr_scores = contr_scores
+        self.contr_hard = contr_hard
         ####
         
         # Optimizer (needs to be set before training starts))
@@ -680,8 +682,8 @@ class AutoEncoder(ContinualLearner):
         OUTPUT: - [contrL]     <1D tensor> of length [batch_size]'''
         
         temp = self.c_temp
-        use_scores = False
-        hard_sampling = False
+        use_scores = self.contr_scores
+        hard_sampling = self.contr_hard
         y = scores if use_scores and (scores is not None) else y
         
         batch_size = proj_z.shape[0]
@@ -720,7 +722,7 @@ class AutoEncoder(ContinualLearner):
             neg_mask = logits_mask - mask
             pos_mask = mask
             exp_logits = torch.exp(logits)
-        
+
             exp_neg = exp_logits * neg_mask
             exp_pos = exp_logits * pos_mask
 
@@ -745,33 +747,7 @@ class AutoEncoder(ContinualLearner):
         # Contrastive loss...
         contrL = - (temp / base_temp) * mean_log_prob_pos
         return contrL.view(anchor_count, batch_size).mean()
-    
-    def calculate_overlap_loss(self, mu_1, logvar_1, mu_2, logvar_2):
-        '''Calculate difference loss for each element in the batch.
 
-        INPUT:  - [mu]       <2D-tensor> by encoder predicted mean for [z]
-                - [logvar]   <2D-tensor> by encoder predicted logvar for [z]
-                - [z]        <2D-tensor> with sampled latent variables (1st dimension (ie, dim=0) is "batch-dimension")
-
-        OUTPUT: - [diffL]   <1D-tensor> of length [batch_size]'''
-        
-        #### Aproximate overlap between two gaussian distributions...
-        lower_bound_1, upper_bound_1 = mu_1 - 2*torch.exp(0.5*logvar_1), mu_1 + 2*torch.exp(0.5*logvar_1)
-        lower_bound_2, upper_bound_2 = mu_2 - 2*torch.exp(0.5*logvar_2), mu_2 + 2*torch.exp(0.5*logvar_2)
-        
-        within_lower_1 = torch.eq(torch.maximum(lower_bound_2, lower_bound_1), lower_bound_2).float()
-        within_upper_1 = torch.eq(torch.minimum(lower_bound_2, upper_bound_1), lower_bound_2).float()
-        overlaped_distributions = within_lower_1 * within_upper_1
-        
-        within_lower_2 = torch.eq(torch.maximum(lower_bound_1, lower_bound_2), lower_bound_1).float()
-        within_upper_2 = torch.eq(torch.minimum(lower_bound_1, upper_bound_2), lower_bound_1).float()
-        overlaped_distributions += (within_lower_2 * within_upper_2)
-
-        #overlaped_distributions = torch.where(((lower_bound_2 > lower_bound_1) and (lower_bound_2 < upperbound_1)) or ((lower_bound_1 > lower_bound_2) and (lower_bound_1 < upperbound_2))).float()
-        overlapL = overlaped_distributions * (torch.minimum(upper_bound_1, upper_bound_2) - torch.maximum(lower_bound_1, lower_bound_2))
-        overlapL = overlapL.sum(1)
-        
-        return overlapL
 
     #### End of new losses ####
 

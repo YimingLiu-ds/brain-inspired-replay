@@ -221,6 +221,8 @@ def add_replay_options(parser, only_MNIST=False, compare_code="none", **kwargs):
         replay.add_argument('--recon-attraction', action='store_true', dest='recon_attraction', help="use recon attraction with replay")
         replay.add_argument('--lamda-recon-atr', type=float, default=1e-6, dest='recon_atrl', help='weight of recon attraction loss (def=1e-4)')
         replay.add_argument('--not-hidden', action='store_true', dest='contr_not_hidden', help="do not use internal replay with contrastive learning")
+        replay.add_argument('--c-scores', action='store_true', dest='contr_scores', help="use softmax scores in contrastive learning loss")
+        replay.add_argument('--c-hard', action='store_true', dest='contr_hard', help="use hard sampling in contrastive learning loss")
     return parser
 
 

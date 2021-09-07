@@ -28,10 +28,7 @@ The required datasets do not need to be explicitly downloaded, this will be done
 
 
 ## Running the experiments
-All experiments performed in the project can be run through `main_cl.py` using various flags for the diferent experiments.
-The main universal options for these flags are:
-- `--iters`: the number of iterations per segment/task
-- `--`: 
+All experiments performed in the project can be run through `main_cl.py` using various flags for the diferent experiments. The main universal parameter for these experiments is the number of iterations per segment/task, which can be varied using the `--iters` flag (the default is 5000 iterations).
 
 ### Baseline
 To run the baseline experiment used for comparisons throughout the project, the following code should be run from the command line once changed into the 'brain-inspired-replay' folder:

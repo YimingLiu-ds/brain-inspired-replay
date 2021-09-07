@@ -27,21 +27,6 @@ Assuming Python3 is set up, the Python-packages used by this code can be install
 The required datasets do not need to be explicitly downloaded, this will be done automatically the first time the code is run.
 
 
-#### Demo 1: Brain-inspired replay on split MNIST
-
-This runs a single continual learning experiment: brain-inspired replay on the class-incremental learning scenario of split MNIST.
-Information about the data, the model, the training progress and the produced outputs (e.g., a pdf with results) is printed to the screen.
-Expected run-time on a standard laptop is ~12 minutes, with a GPU it should take ~4 minutes.
-
-#### Demo 2: Comparison of continual learning methods
-```bash
-./compare_MNIST.py --scenario=class
-```
-This runs a series of continual learning experiments to compare the performance of various methods.
-Information about the different experiments, their progress and the produced outputs (e.g., a summary pdf) is printed to the screen.
-Expected run-time on a standard laptop is ~50 minutes, with a GPU it should take ~18 minutes.
-
-
 ## Running the experiments
 All experiments performed in the project can be run through `main_cl.py` using various flags for the diferent experiments.
 The main universal options for these flags are:
@@ -53,31 +38,40 @@ To run the baseline experiment used for comparisons throughout the project, the 
 ```bash
 main_cl.py --experiment=CIFAR100 --scenario=class --replay=generative --brain-inspired --si --c=1e8 --dg-prop=0.6 --pdf
 ```
-This will run a single experiment using the optimal hyperparameters identified by Van de Ven et al, 2020. Using a GPU this should take just over 1 hour, however, as mentioed above it is possible to reduce the number of iterations per segment from the default of 5000 using the '--iters' flag, which will significantly reduce runtime but compromise on final classifiaction precision. The '--brain-inspired --si' flags ensure that the experiment is run via the state-of-the-art BI-R with Synaptic Intelligence (SI) model.
+This will run a single experiment using the optimal hyperparameters identified by Van de Ven et al, 2020. Using a GPU this should take just over 1 hour, however, as mentioed above it is possible to reduce the number of iterations per segment from the default of 5000 using the `--iters` flag, which will significantly reduce runtime but compromise on final classifiaction precision. The `--brain-inspired --si` flags ensure that the experiment is run via the state-of-the-art BI-R with Synaptic Intelligence (SI) model.
 
 ### Distribution-based repulsion loss
-To run an experiment using the distribution-based repulsion loss, please add the flag '--repulsion' to the baseline implementation:
+To run an experiment using the distribution-based repulsion loss, please add the flag `--repulsion` to the baseline implementation:
 ```bash
 main_cl.py --experiment=CIFAR100 --scenario=class --replay=generative --brain-inspired --si --c=1e8 --dg-prop=0.6 --pdf --repulsion
 ```
-The loss-weighting and KL/JS divergence hyperparatmeters can also be selected (ther defaults are the optimal values) via the '--lamda-rep' and '--kl-js' (options for this are 'kl' or 'js') respectively.
+The loss-weighting and KL/JS divergence hyperparatmeters can also be selected (ther defaults are the optimal values) via the `--lamda-rep` and `--kl-js` (options for this are 'kl' or 'js') respectively.
 
-The repulsion factor, f, can also be implemented via the '--use-rep-f' and its value selected via '--rep-f'.
+The repulsion factor, f, can also be implemented via the `--use-rep-f` and its value selected via `--rep-f`.
 
 ### Reconstruction-based repulsion/attraction loss
-The reconstruction-based loss can be implementated by the addition of '--recon-repulsion' and '--recon-attraction' (for repulsion and attraction respectively). In addition the use of class-averaging, as described in the paper, can be achieved through the '--recon-rep-aver' flag:
+The reconstruction-based loss can be implementated by the addition of `--recon-repulsion` and `--recon-attraction` (for repulsion and attraction respectively). In addition the use of class-averaging, as described in the paper, can be achieved through the `--recon-rep-aver` flag:
 ```bash
 main_cl.py --experiment=CIFAR100 --scenario=class --replay=generative --brain-inspired --si --c=1e8 --dg-prop=0.6 --pdf --recon-repulsion --recon-attraction --recon-rep-aver
 ```
-The optimal hyperparameters for this are set as default, however to alter the weightings of the repulsion and attraction losses please use the '--lamda-recon-rep' and '--lamda-recon-atr' flags respectively.
+The optimal hyperparameters for this are set as default, however to alter the weightings of the repulsion and attraction losses please use the `--lamda-recon-rep` and `--lamda-recon-atr` flags respectively.
 
-As with the distribution-based loss, the repulsion factor can also be used and varied via the addition of '--use-rep-f' and '--rep-f'.
-
-
+As with the distribution-based loss, the repulsion factor can also be used and varied via the addition of `--use-rep-f` and `--rep-f`.
 
 ### Incorporating contrastive learning
+The baseline used for comparison to the contrastive learning adaptation can be implemented via the following command (this ensures that the image augmentation occuring in contrastive learning is also applied to the baseline):
+```bash
+main_cl.py --experiment=CIFAR100 --scenario=class --replay=generative --brain-inspired --si --c=1e8 --dg-prop=0.6 --pdf --not-hidden
+```
 
-
+To run the contrastive learning modification, please add the `--contrastive` flag and, for the use of soft-targets in the contrastive loss, `--c-scores`, as below:
+```bash
+main_cl.py --experiment=CIFAR100 --scenario=class --replay=generative --brain-inspired --si --c=1e8 --dg-prop=0.6 --pdf --contrastive --c-scores
+```
+The default hyperparamters are the idenfied optimal ones, however to select custom hyperparameters please use the following flags:
+- `--c-temp`: temperature of contrastive loss
+- `--c-lr`: learning rate of contrastive learning optimiser
+- `--c-drop`: drop-out rate of contrastive learning projection head
 
 
 For further information on the above flag options and a full list of possible flags, please run: `main_cl.py -h`.

@@ -84,4 +84,4 @@ Before running the experiments, the visdom server should be started from the com
 python -m visdom.server
 ```
 The visdom server is now alive and can be accessed at `http://localhost:8097` in your browser (the plots will appear
-there). The flag `--visdom` should then be added when calling `./main_cl.py` to run the experiments with on-the-fly plots.
+there). The flag `--visdom` should then be added when calling `main_cl.py` to run the experiments with on-the-fly plots.

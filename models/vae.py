@@ -33,11 +33,11 @@ class AutoEncoder(ContinualLearner):
                  # -classifer
                  classifier=True, classify_opt="beforeZ",
                  # -training-specific settings (can be changed after setting up model)
-                 lamda_pl=0., lamda_rcl=1., lamda_vl=1., lamda_rep=1., 
+                 lamda_pl=0., lamda_rcl=1., lamda_vl=1., lamda_rep=1e-6, 
                  #### Determine whether or not to implement class repulsion...
-                 repulsion=False, kl_js='js', use_rep_factor=False, rep_factor=1.5, apply_mask=False,
-                 contrastive=False, c_temp=0.07, c_drop=0.5, contr_not_hidden=False, recon_repulsion=False, recon_rep_averaged=False,
-                 lamda_recon_rep=1e-4, recon_attraction=False, lamda_recon_atr=1e-4, contr_scores=False, contr_hard=False, **kwargs):
+                 repulsion=False, kl_js='js', use_rep_factor=False, rep_factor=20, apply_mask=False,
+                 contrastive=False, c_temp=1.0, c_drop=0.5, contr_not_hidden=False, recon_repulsion=False, recon_rep_averaged=False,
+                 lamda_recon_rep=1e-6, recon_attraction=False, lamda_recon_atr=1e-6, contr_scores=False, contr_hard=False, **kwargs):
 
         # Set configurations for setting up the model
         super().__init__()

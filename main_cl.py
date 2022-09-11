@@ -21,9 +21,6 @@ from train import train_cl
 from param_stamp import get_param_stamp
 from models.cl.continual_learner import ContinualLearner
 from torch import nn
-import multiprocessing
-from multiprocessing import Pool
-import optuna
 
 
 ## Function for specifying input-options and organizing / checking them

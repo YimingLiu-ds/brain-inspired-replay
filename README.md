@@ -17,8 +17,8 @@ The current version of the code has been tested with `Python 3.5.2` on both Linu
 
 To use the code, download the repository and change into it:
 ```bash
-git clone https://github.com/YimingLiu-ds/brain-inspired-replay-lym.git
-cd brain-inspired-replay-lym
+git clone https://github.com/YimingLiu-ds/brain-inspired-replay.git
+cd brain-inspired-replay
 ```
 (If downloading the zip-file, extract the files and change into the extracted folder.)
  

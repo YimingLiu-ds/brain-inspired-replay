@@ -127,7 +127,7 @@ def add_model_options(parser, only_MNIST=False, generative=False, single_task=Fa
     model.add_argument('--fc-layers', type=int, default=3, dest='fc_lay', help="# of fully-connected layers")
     model.add_argument('--fc-units', type=int, default=2000 if single_task else None, metavar="N",
                        help="# of units in first fc-layers")
-    model.add_argument('--fc-drop', type=float, default=0., dest='fc_drop', help="dropout probability for fc-units")
+    model.add_argument('--fc-drop', type=float, default=0.26, dest='fc_drop', help="dropout probability for fc-units")
     model.add_argument('--fc-bn', type=str, default="no", help="use batch-norm in the fc-layers (no|yes)")
     model.add_argument('--fc-nl', type=str, default="relu", choices=["relu", "leakyrelu", "none"])
     model.add_argument('--h-dim', type=int, metavar="N", help='# of hidden units final layer (default: fc-units)')
@@ -216,7 +216,7 @@ def add_replay_options(parser, only_MNIST=False, compare_code="none", **kwargs):
         replay.add_argument('--contrastive', action='store_true', dest='contrastive', help="use contrastive learning with replay")
         replay.add_argument('--c-temp', type=float, default=1.0, dest='c_temp', help="contrastive learning loss temperture")
         replay.add_argument('--c-lr', type=float, default=1e-8, dest='contr_lr', help="contrastive learning rate")
-        replay.add_argument('--c-drop', type=float, default=0.5, dest='c_drop', help="contrastive learning dropout rate")
+        replay.add_argument('--c-drop', type=float, default=0.52, dest='c_drop', help="contrastive learning dropout rate")
         replay.add_argument('--recon-repulsion', action='store_true', dest='recon_repulsion', help="use recon repulsion with replay")
         replay.add_argument('--recon-rep-aver', action='store_true', dest='recon_rep_averaged', help="use class averaging with recon repulsion")
         replay.add_argument('--lamda-recon-rep', type=float, default=1e-6, dest='recon_repl', help='weight of recon repulsion loss (def=1e-4)')
@@ -228,12 +228,12 @@ def add_replay_options(parser, only_MNIST=False, compare_code="none", **kwargs):
         ###lym
         replay.add_argument('--simsiam', action='store_true', dest='simsiam', help="use simsaim representation learning with replay")
         replay.add_argument('--momentum', default=0.9, type=float, metavar='M', help='momentum of SGD solver')
-        replay.add_argument('--wd', '--weight-decay', default=1e-4, type=float, metavar='W', dest='weight_decay', help='weight decay (default: 1e-4)')
+        replay.add_argument('--wd', '--weight-decay', default=1e-1, type=float, metavar='W', dest='weight_decay', help='weight decay (default: 1e-1)')
         replay.add_argument('--lamda-ss-rep', type=float, default=1e-3, dest='lamda_ssl', help='weight of cosine similarity loss (def=1e-1)')
         replay.add_argument('--ss-lr', type=float, default=0.05, dest='simsiam_lr', help="simsiam learning rate")
         replay.add_argument('--attention', action='store_true', dest='attention', help="use attention in simsiam")
         replay.add_argument('--ma', action='store_true', dest='ma', help="use MultiHeadedAttention for attention mechanism")
-        replay.add_argument('--ma_drop', type=float, default=0.1, dest='ma_drop', help="MultiHeadedAttention dropout rate")
+        replay.add_argument('--ma_drop', type=float, default=0.62, dest='ma_drop', help="MultiHeadedAttention dropout rate")
 
     return parser
 

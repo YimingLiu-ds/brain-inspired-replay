@@ -85,7 +85,7 @@ def train(model, train_loader, iters, loss_cbs=list(), eval_cbs=list(), save_eve
 
             # Perform training-step on this batch
             data, y = data.to(device), y.to(device)
-            loss_dict = model.train_a_batch(data, y=y, freeze_convE=freeze_convE)
+            loss_dict = model.train_a_batch(data, y=y, freeze_convE=freeze_convE, criterion=criterion)
 
             # Fire training-callbacks (for visualization of training-progress)
             for loss_cb in loss_cbs:
@@ -106,11 +106,9 @@ def train(model, train_loader, iters, loss_cbs=list(), eval_cbs=list(), save_eve
             if (save_every is not None) and (iteration % save_every) == 0:
                 utils.save_checkpoint(model, model_dir=m_dir)
 
-
-
 def train_cl(model, train_datasets, replay_mode="none", scenario="task", rnt=None, classes_per_task=None,
              iters=2000, batch_size=32, batch_size_replay=None, loss_cbs=list(), eval_cbs=list(), sample_cbs=list(),
-             generator=None, gen_iters=0, gen_loss_cbs=list(), feedback=False, reinit=False, args=None, only_last=False):
+             generator=None, gen_iters=0, gen_loss_cbs=list(), feedback=False, reinit=False, args=None, only_last=False, criterion=None):
     '''Train a model (with a "train_a_batch" method) on multiple tasks, with replay-strategy specified by [replay_mode].
 
     [model]             <nn.Module> main model to optimize across all tasks
@@ -128,6 +126,7 @@ def train_cl(model, train_datasets, replay_mode="none", scenario="task", rnt=Non
     
     #### Should augmented views be created?...
     use_views = args.contrastive
+    use_attention = args.attention
     contrast_current = False
     contrast_replayed = True
 
@@ -144,7 +143,7 @@ def train_cl(model, train_datasets, replay_mode="none", scenario="task", rnt=Non
     # Initiate indicators for replay (no replay for 1st task)
     Generative = Current = Offline_TaskIL = False
     previous_model = None
-
+    precision_dict = {}
 
     # Register starting param-values (needed for "intelligent synapses").
     if isinstance(model, ContinualLearner) and model.si_c>0:
@@ -172,6 +171,7 @@ def train_cl(model, train_datasets, replay_mode="none", scenario="task", rnt=Non
             W = {}
             p_old = {}
             for n, p in model.named_parameters():
+                # print('n',n)
                 if p.requires_grad:
                     n = n.replace('.', '__')
                     W[n] = p.data.clone().zero_()
@@ -321,7 +321,7 @@ def train_cl(model, train_datasets, replay_mode="none", scenario="task", rnt=Non
                 if scenario in ("domain", "class") and previous_model.mask_dict is None:
                     # -if replay does not need to be evaluated for each task (ie, not Task-IL and no task-specific mask)
                     with torch.no_grad():
-                        all_scores_ = previous_model.classify(x_ if not (use_views or args.contr_not_hidden) else x_[0], not_hidden=False if Generative else True)
+                        all_scores_ = previous_model.classify(x_ if not (use_views or args.contr_not_hidden) else x_[0], not_hidden=False if Generative else True, current=Current)
                     scores_ = all_scores_[:, :(classes_per_task*(task-1))] if (
                             scenario=="class"
                     ) else all_scores_ # -> when scenario=="class", zero probs will be added in [loss_fn_kd]-function
@@ -334,7 +334,7 @@ def train_cl(model, train_datasets, replay_mode="none", scenario="task", rnt=Non
                     # -if no task-mask and no conditional generator, all scores can be calculated in one go
                     if previous_model.mask_dict is None and not type(x_)==list:
                         with torch.no_grad():
-                            all_scores_ = previous_model.classify(x_, not_hidden=False if Generative else True)
+                            all_scores_ = previous_model.classify(x_, not_hidden=False if Generative else True, current=Current)
                     for task_id in range(task-1):
                         # -if there is a task-mask (i.e., XdG is used), obtain predicted scores for each task separately
                         if previous_model.mask_dict is not None:
@@ -342,7 +342,7 @@ def train_cl(model, train_datasets, replay_mode="none", scenario="task", rnt=Non
                         if previous_model.mask_dict is not None or type(x_)==list:
                             with torch.no_grad():
                                 all_scores_ = previous_model.classify(x_[task_id] if type(x_)==list else x_,
-                                                                      not_hidden=False if Generative else True)
+                                                                      not_hidden=False if Generative else True, current=Current)
                         if scenario=="domain":
                             # NOTE: if scenario=domain with task-mask, it's of course actually the Task-IL scenario!
                             #       this can be used as trick to run the Task-IL scenario with singlehead output layer
@@ -356,21 +356,39 @@ def train_cl(model, train_datasets, replay_mode="none", scenario="task", rnt=Non
             # -only keep predicted y_/scores_ if required (as otherwise unnecessary computations will be done)
             y_ = y_ if (model.replay_targets=="hard") else None
             scores_ = scores_ if (model.replay_targets=="soft") else None
-            
+
             if args.repulsion or args.recon_repulsion or args.recon_attraction:
                 #### Finding top 2 scores predicted by classifier for each replay 'image'...
                 if scores_ is not None:
+                    ###lym
+                    scores_ = scores_.to(device)
+                    scores_1 = scores_.type(torch.DoubleTensor)
+                    scores_mean = torch.mean(scores_1, 0)
+                    scores_std = torch.std(scores_1, 0)
+                    scores_threshold = scores_mean + scores_std
+                    threshold_all = scores_threshold.expand(batch_size, -1)
+                    threshold_all = threshold_all.to(device) if threshold_all is not None else None
+
                     if not args.use_rep_factor:
                         tk = int(args.n_rep + 1) if scores_.size()[1] > args.n_rep else scores_.size()[1]
                     else:
                         tk = 4 if scores_.size()[1] > 3 else scores_.size()[1]
                 else:
                     tk = None
-       
+                # top_scores_ the index(1,2,3) of the classes
                 top_scores_ = torch.topk(scores_, tk, dim=1)[1] if scores_ is not None else None
+                top_scores_ = top_scores_.to(device) if scores_ is not None else None
+
+                if top_scores_ is not None:
+                    top_index = torch.reshape(top_scores_[:, 0], (-1, 1))
+                    top_threshold = torch.gather(threshold_all, 1, top_index.detach().clone())
+                else:
+                    top_threshold = None
+
                 ####
             else:
                 top_scores_ = None
+                top_threshold = None
             
             ### Image exaggeration...
             
@@ -381,19 +399,24 @@ def train_cl(model, train_datasets, replay_mode="none", scenario="task", rnt=Non
             if batch_index <= iters_main:
 
                 # Train the main model with this batch
-                loss_dict = model.train_a_batch(x, y=y, x_=x_, y_=y_, scores_=scores_, top_scores_=top_scores_, batch_index=batch_index,
+                loss_dict = model.train_a_batch(x, y=y, x_=x_, y_=y_, scores_=scores_, top_scores_=top_scores_, top_threshold=top_threshold, batch_index=batch_index,
                                                 tasks_=task_used, active_classes=active_classes, task=task, rnt=(
                                                     1. if task==1 else 1./task
                                                 ) if rnt is None else rnt, freeze_convE=freeze_convE,
                                                 replay_not_hidden=False if Generative else True, batch_size=batch_size, 
                                                 batch_size_replay=batch_size_replay, task_n=task, use_views=use_views, 
-                                                contrast_current=contrast_current, contrast_replayed=contrast_replayed)
+                                                contrast_current=contrast_current, contrast_replayed=contrast_replayed, criterion=criterion)
 
                 if args.contrastive:
                     for n, param in model.named_parameters():
                         param.requires_grad = True
-                    for n, param in chain(model.convE.named_parameters(), model.fcProj.named_parameters()):
-                        param.requires_grad = False
+                    if not use_attention:
+                        for n, param in chain(model.convE.named_parameters(), model.fcProj.named_parameters(), model.predictor.named_parameters()):
+                            param.requires_grad = False
+                    else:
+                        for n, param in chain(model.convE.named_parameters(), model.fcProj.named_parameters(), model.predictor.named_parameters(),
+                                              model.multihead_attn.named_parameters(), model.E_attn.named_parameters()):
+                            param.requires_grad = False
 
                 # Update running parameter importance estimates in W
                 if isinstance(model, ContinualLearner) and model.si_c>0:
@@ -442,7 +465,7 @@ def train_cl(model, train_datasets, replay_mode="none", scenario="task", rnt=Non
                                                         1. if task==1 else 1./task
                                                     ) if rnt is None else rnt, task=task,
                                                     freeze_convE=freeze_convE,
-                                                    replay_not_hidden=False if Generative else True)
+                                                    replay_not_hidden=False if Generative else True, criterion=criterion)
 
                 # Fire callbacks on each iteration
                 for loss_cb in gen_loss_cbs:
@@ -461,6 +484,7 @@ def train_cl(model, train_datasets, replay_mode="none", scenario="task", rnt=Non
             progress_gen.close()
         
         ####
+        precision_dict[task] = loss_dict['precision']
         print(loss_dict)
 
         ##----------> UPON FINISHING EACH TASK...
@@ -488,3 +512,5 @@ def train_cl(model, train_datasets, replay_mode="none", scenario="task", rnt=Non
             previous_generator = previous_model if feedback else copy.deepcopy(generator).eval()
         elif replay_mode=='current':
             Current = True
+
+    return precision_dict

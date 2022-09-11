@@ -20,6 +20,10 @@ import eval.fid as fid
 from train import train_cl
 from param_stamp import get_param_stamp
 from models.cl.continual_learner import ContinualLearner
+from torch import nn
+import multiprocessing
+from multiprocessing import Pool
+import optuna
 
 
 ## Function for specifying input-options and organizing / checking them
@@ -44,7 +48,7 @@ def handle_inputs():
 
 
 ## Function for running one continual learning experiment
-def run(args, verbose=False):
+def run(args, verbose=True):
 
     # Create plots- and results-directories if needed
     if not os.path.isdir(args.r_dir):
@@ -72,13 +76,11 @@ def run(args, verbose=False):
     if cuda:
         torch.cuda.manual_seed(args.seed)
 
-
     #-------------------------------------------------------------------------------------------------#
 
     #----------------#
     #----- DATA -----#
     #----------------#
-
     # Prepare data for chosen experiment
     if verbose:
         print("\nPreparing the data...")
@@ -108,7 +110,7 @@ def run(args, verbose=False):
     # Initialize / use pre-trained / freeze model-parameters
     # - initialize (pre-trained) parameters
     model = define.init_params(model, args)
-    # - freeze weights of conv-layers?
+    # - freeze weights of conv-layers? True
     if utils.checkattr(args, "freeze_convE"):
         for param in model.convE.parameters():
             param.requires_grad = False
@@ -117,10 +119,11 @@ def run(args, verbose=False):
             param.requires_grad = False
     ####
     use_views = args.contrastive
+    use_attention = args.attention
+
     if use_views:
         for param in model.fcProj.parameters():
             param.requires_grad = False
-    ####
 
     # Define optimizer (only optimize parameters that "requires_grad")
     model.optim_list = [
@@ -130,17 +133,19 @@ def run(args, verbose=False):
 
     #### Define encoder optimizer (only optimize the encoder & MLP parameters)...
     if use_views:
-        #if utils.checkattr(args, "freeze_convE"):
-            #for param in chain(model.convE.parameters(), model.fcE.parameters(), model.fcProj.parameters()):
-            #for param in chain(model.fcE.parameters(), model.fcProj.parameters()):
-            #    param.requires_grad = True
-    
-        model.E_optim_list = [
-            #{'params': chain(model.convE.parameters(), model.fcE.parameters(), model.fcProj.parameters()), 'lr': args.contr_lr},
-            {'params': chain(model.fcE.parameters(), model.fcProj.parameters()), 'lr': args.contr_lr},
-        ]
+        if use_attention:
+            attn_lr = args.contr_lr*(10**(-args.iters/1000))
+            model.E_optim_list = [
+                {'params': chain(model.fcE.parameters(), model.fcProj.parameters(), model.predictor.parameters(), model.multihead_attn.parameters(), model.E_attn.parameters()),
+                 'lr': attn_lr},
+                ]
+
+        else:
+            model.E_optim_list = [
+                {'params': chain(model.fcE.parameters(), model.fcProj.parameters(), model.predictor.parameters()), 'lr': args.contr_lr},
+                ]
         print(' Contrastive LR =', args.contr_lr)
-        model.E_optimizer = optim.Adam(model.E_optim_list, betas=(0.9, 0.999))
+        model.E_optimizer = optim.Adam(model.E_optim_list, betas=(0.9, 0.999), weight_decay=args.weight_decay)
 
     #-------------------------------------------------------------------------------------------------#
 
@@ -208,7 +213,6 @@ def run(args, verbose=False):
     #---------------------#
     #----- REPORTING -----#
     #---------------------#
-
     # Get parameter-stamp (and print on screen)
     if verbose:
         print("\nParameter-stamp...")
@@ -315,19 +319,23 @@ def run(args, verbose=False):
     if args.train:
         if verbose:
             print("\nTraining...")
+
+        criterion = nn.CosineSimilarity(dim=1).cuda(args.cuda)
+
         # Train model
-        train_cl(
+        precision_train = train_cl(
             model, train_datasets, replay_mode=args.replay if hasattr(args, 'replay') else "none",
             scenario=args.scenario, classes_per_task=classes_per_task, iters=args.iters,
             batch_size=args.batch, batch_size_replay=args.batch_replay if hasattr(args, 'batch_replay') else None,
             generator=generator, gen_iters=g_iters, gen_loss_cbs=generator_loss_cbs,
             feedback=utils.checkattr(args, 'feedback'), sample_cbs=sample_cbs, eval_cbs=eval_cbs,
             loss_cbs=generator_loss_cbs if utils.checkattr(args, 'feedback') else solver_loss_cbs,
-            args=args, reinit=utils.checkattr(args, 'reinit'), only_last=utils.checkattr(args, 'only_last')
+            args=args, reinit=utils.checkattr(args, 'reinit'), only_last=utils.checkattr(args, 'only_last'), criterion=criterion
         )
         # Save evaluation metrics measured throughout training
         file_name = "{}/dict-{}".format(args.r_dir, param_stamp)
         utils.save_object(precision_dict, file_name)
+        # print(model.state_dict().keys())
         # Save trained model(s), if requested
         if args.save:
             save_name = "mM-{}".format(param_stamp) if (
@@ -381,19 +389,34 @@ def run(args, verbose=False):
             args.tasks*classes_per_task if args.scenario=="class" else args.tasks,
             "classes" if args.scenario=="class" else "tasks", average_precs
         ))
+
+
     # -write out to text file
-    output_file = open("{}/{}bsz {}rbsz {}iters {}ctemp contr-{} {}clr {}drop {}recrep {}rec-lam {}aver {}recatr-lam repf-{}-{} distrep-{} {} {}dist-lam {}-nhid h{} s{}.txt".format(\
+    output_file = open("{}/{}bsz {}rbsz {}iters {}ctemp contr-{} {}clr {}drop {}ma {}recrep {}rec-lam {}aver {}recatr-lam repf-{}-{} distrep-{} {} {}dist-lam {}-nhid h{} s{}.txt".format(\
                                             args.r_dir, args.batch, args.batch_replay, args.iters, args.c_temp, args.contrastive, \
-                                            args.contr_lr, args.c_drop, args.recon_repulsion, args.recon_repl, args.recon_rep_averaged,\
+                                            args.contr_lr, args.c_drop, args.ma, args.recon_repulsion, args.recon_repl, args.recon_rep_averaged,\
                                             args.recon_atrl, args.use_rep_factor, args.rep_factor, args.repulsion, args.kl_js, \
                                             args.repl, args.contr_not_hidden, args.contr_hard, args.contr_scores), 'a+')
-    output_file.write('\nAccuracy of final model on test-set:')
+    output_file.write('\n\nAccuracy of final model on test-set seed={}:'.format(args.seed))
     for i in range(args.tasks):
         output_file.write("\n - {} {}: {:.4f}".format("For classes from task" if args.scenario=="class" else "Task", i+1, precs[i]))
-    output_file.write('\n\n=> Average accuracy over all {} {}: {:.4f}\n'.format(
+    output_file.write('\n\n=> Average accuracy over all {} {}: {:.4f}'.format(
         args.tasks*classes_per_task if args.scenario=="class" else args.tasks,
         "classes" if args.scenario=="class" else "tasks", average_precs))
     output_file.close()
+
+    ###lym training precision
+    output_file = open(
+        "{}/tp-{}bsz {}rbsz {}iters {}ctemp contr-{} {}clr {}drop {}ma {}recrep {}rec-lam {}aver {}recatr-lam repf-{}-{} distrep-{} {} {}dist-lam {}-nhid h{} s{}.txt".format( \
+            args.r_dir, args.batch, args.batch_replay, args.iters, args.c_temp, args.contrastive, \
+            args.contr_lr, args.c_drop, args.ma, args.recon_repulsion, args.recon_repl, args.recon_rep_averaged, \
+            args.recon_atrl, args.use_rep_factor, args.rep_factor, args.repulsion, args.kl_js, \
+            args.repl, args.contr_not_hidden, args.contr_hard, args.contr_scores), 'a+')
+    output_file.write('\n\nAccuracy of final model on train-set seed={}:'.format(args.seed))
+    for i in range(args.tasks):
+        output_file.write("\n - {} {}: {:.4f}".format("For classes from task" if args.scenario=="class" else "Task", i+1, precision_train[i+1]))
+    output_file.close()
+    ###lym training precision
 
     param_tuning = False if not hasattr(args, 'tuning') else args.tuning
     if param_tuning:
@@ -586,3 +609,4 @@ def run(args, verbose=False):
 if __name__ == '__main__':
     args = handle_inputs()
     run(args, verbose=True)
+

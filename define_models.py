@@ -60,7 +60,13 @@ def define_autoencoder(args, config, device, generator=False, convE=None):
             recon_attraction=False if not hasattr(args, 'recon_attraction') else args.recon_attraction,
             lamda_recon_atr=1e-6 if not hasattr(args, 'recon_atrl') else args.recon_atrl,
             contr_scores=False if not hasattr(args, 'contr_scores') else args.contr_scores,
-            contr_hard=False if not hasattr(args, 'contr_hard') else args.contr_hard
+            contr_hard=False if not hasattr(args, 'contr_hard') else args.contr_hard,
+            simsiam=False if not hasattr(args, 'simsiam') else args.simsiam,
+            lamda_ssl=1e-6 if not hasattr(args, 'lamda_ssl') else args.lamda_ssl,
+            attention=False if not hasattr(args, 'attention') else args.attention,
+            ma=False if not hasattr(args, 'ma') else args.ma,
+            ma_drop=0.1 if not hasattr(args, 'ma_drop') else args.ma_drop,
+            ###lym
             ####
         ).to(device)
     else:
@@ -108,7 +114,13 @@ def define_autoencoder(args, config, device, generator=False, convE=None):
             recon_attraction=False if not hasattr(args, 'recon_attraction') else args.recon_attraction,
             lamda_recon_atr=1e-6 if not hasattr(args, 'recon_atrl') else args.recon_atrl,
             contr_scores=False if not hasattr(args, 'contr_scores') else args.contr_scores,
-            contr_hard=False if not hasattr(args, 'contr_hard') else args.contr_hard
+            contr_hard=False if not hasattr(args, 'contr_hard') else args.contr_hard,
+            simsiam=False if not hasattr(args, 'simsiam') else args.simsiam,
+            lamda_ssl=1e-6 if not hasattr(args, 'lamda_ssl') else args.lamda_ssl,
+            attention=False if not hasattr(args, 'attention') else args.attention,
+            ma=False if not hasattr(args, 'ma') else args.ma,
+            ma_drop=0.1 if not hasattr(args, 'ma_drop') else args.ma_drop,
+            ###lym
             ####
         ).to(device)
     # -return model
@@ -160,6 +172,7 @@ def init_params(model, args):
         load_name = model.convE.name if (
             not hasattr(args, 'convE_ltag') or args.convE_ltag=="none"
         ) else "{}-{}".format(model.convE.name, args.convE_ltag)
+        print('load_checkpoint',1)
         utils.load_checkpoint(model.convE, model_dir=args.m_dir, name=load_name)
     if utils.checkattr(args, "pre_convD") and hasattr(model, 'convD') and model.depth>0:
         utils.load_checkpoint(model.convD, model_dir=args.m_dir)

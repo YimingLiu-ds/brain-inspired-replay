@@ -1,5 +1,5 @@
 # Research Project:
-## Exploring the application of brain-inspired feature exaggeration to a state-of-the-art continual learning model
+## Brain-inspired contrastive learning and visual attention in generative replay for Continual Learning
 Recent developments in neuroscience have uncovered the benifical role of memory exaggeration in the brain. The it has been shown that the brain will tend to exaggerate the differences between similar, competing memeories in order to better differentiate between them. This project explores possible adaptations to the current state-of-the-art generative continual learning model proposed by Van de Ven et al, 2020 in an attempt to applying such an exaggeration/repulsion to the generative model's replayed 'memories' of competing (similar and often confused between) classes. Ultimately, the aim of this exaggeration is to reduce the extent of catastrophic forgeting of earlier-learnt classes by encouraging a better differentiation between them. This project builds upon the work of Van de Ven et al, 2020, adding extensive modifications to their PyTorch implementation. Most alterations were made within the `models/VAE.py`, `main_cl.py` and `train.py` Entirely new additions have been highlighted through the use of a quadruple hashtag: `####`. 
 
 

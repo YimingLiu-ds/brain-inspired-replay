@@ -99,6 +99,7 @@ class AutoEncoder(ContinualLearner):
         self.c_temp = c_temp
         self.c_drop = c_drop
         ####
+        ###lym
         self.simsiam = simsiam
         self.use_attention = attention
         self.ma = ma
@@ -136,7 +137,7 @@ class AutoEncoder(ContinualLearner):
         self.fcE = MLP(size_per_layer=self.fc_layer_sizes, drop=fc_drop, batch_norm=fc_bn, nl=fc_nl,
                        excit_buffer=excit_buffer, gated=fc_gated)
         ###### Can add extra layers here ######
-        ###attention
+        ###lym attention
         print('Use Attention', self.use_attention)
         if self.use_attention:
             self.multihead_attn = torch.nn.MultiheadAttention(2000, 25, dropout=self.ma_drop, batch_first=True)

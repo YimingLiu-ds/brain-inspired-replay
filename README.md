@@ -1,6 +1,6 @@
 # Research Project:
 ## Brain-inspired contrastive learning and visual attention in generative replay for Continual Learning
-This project builds upon the work of Van de Ven et al, 2020, and Jack Millichamp, 2021, adding extensive modifications to their PyTorch implementation. Most alterations were made within the `models/VAE.py`, `models/attention.py`, `main_cl.py` and `train.py` Entirely new additions have been highlighted through the use of a quadruple hashtag: `####`. 
+This project builds upon the work of Van de Ven et al, 2020, and Jack Millichamp, 2021, adding extensive modifications to their PyTorch implementation. Most alterations were made within the `models/VAE.py`, `models/attention.py`, `main_cl.py` and `train.py` Entirely new additions have been highlighted through the use of a mark: `###lym`. 
 
 
 ## Installation & requirements
